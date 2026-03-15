@@ -1,19 +1,22 @@
 import 'package:flutter/material.dart';
 
 class LogoWidget extends StatelessWidget {
-  final double width; // Теперь нам нужна только общая ширина логотипа
+  final double width;
+  final Color? color;
 
   const LogoWidget({
     super.key,
-    this.width = 150, // Размер по умолчанию
+    this.width = 150,
+    this.color,
   });
 
   @override
   Widget build(BuildContext context) {
     return Image.asset(
-      'assets/images/logo.png', // Указываем путь к твоей картинке
+      'assets/images/logo.png',
       width: width,
-      fit: BoxFit.contain, // Картинка будет пропорционально вписываться в ширину
+      color: color,
+      fit: BoxFit.contain,
     );
   }
 }

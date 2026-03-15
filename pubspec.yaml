@@ -32,6 +32,8 @@ dependencies:
     sdk: flutter
   dio: ^5.9.2 # Или http, если тебе он привычнее, но Dio мощнее для REST API
   flutter_secure_storage: ^10.0.0 # Для безопасного хранения токена
+  flutter_localizations:
+    sdk: flutter
 
 dev_dependencies:
   flutter_test:

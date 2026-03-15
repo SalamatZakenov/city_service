@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
-// TODO: Импортируем экран заявок, когда создадим его на следующем шаге
-// import '../requests/requests_screen.dart';
+import '../requests/requests_screen.dart';
 
 class MainPage extends StatefulWidget {
   const MainPage({super.key});
@@ -15,8 +14,7 @@ class _MainPageState extends State<MainPage> {
 
   // Список экранов для каждой вкладки
   final List<Widget> _screens = [
-    const Center(child: Text('Экран Заявок (в разработке)')), // Временно заглушка
-    // const RequestsScreen(), // Раскомментируем позже
+    const RequestsScreen(),
     const Center(child: Text('Профиль')),
     const Center(child: Text('Настройки')),
   ];

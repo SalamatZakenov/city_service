@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'presentation/screens/welcome/welcome_screen.dart';
 
 void main() {
@@ -13,6 +14,17 @@ class CityServiceApp extends StatelessWidget {
     return MaterialApp(
       title: 'Uralsk Service',
       debugShowCheckedModeBanner: false,
+
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('ru', 'RU'), // Устанавливаем русский язык
+      ],
+      locale: const Locale('ru', 'RU'),
+
       theme: ThemeData(
         useMaterial3: true,
         fontFamily: 'Roboto', // Можно заменить на шрифт из макета (например, Inter или Montserrat)
