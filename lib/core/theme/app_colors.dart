@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 class AppColors {
-  // Темная тема (оставляем)
+  // Темная тема
   static const Color darkBackground = Color(0xFF0E1A14);
   static const Color primaryMint = Color(0xFF58C482);
   static const Color fieldBackground = Color(0xFF16251C);

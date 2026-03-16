@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../requests/requests_screen.dart';
+import '../../widgets/global_header.dart';
+import '../settings/settings_screen.dart';
 
 class MainPage extends StatefulWidget {
   const MainPage({super.key});
@@ -16,13 +18,14 @@ class _MainPageState extends State<MainPage> {
   final List<Widget> _screens = [
     const RequestsScreen(),
     const Center(child: Text('Профиль')),
-    const Center(child: Text('Настройки')),
+    const SettingsScreen(),
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.lightBackground,
+      appBar: const GlobalHeader(),
       body: _screens[_currentIndex],
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
@@ -50,7 +53,7 @@ class _MainPageState extends State<MainPage> {
           elevation: 0,
           items: const [
             BottomNavigationBarItem(
-              icon: Icon(Icons.assignment_outlined), // Иконка "Заявки"
+              icon: Icon(Icons.assignment_outlined),
               activeIcon: Icon(Icons.assignment),
               label: 'Заявки',
             ),

@@ -21,13 +21,13 @@ class CityServiceApp extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: const [
-        Locale('ru', 'RU'), // Устанавливаем русский язык
+        Locale('ru', 'RU'),
       ],
       locale: const Locale('ru', 'RU'),
 
       theme: ThemeData(
         useMaterial3: true,
-        fontFamily: 'Roboto', // Можно заменить на шрифт из макета (например, Inter или Montserrat)
+        fontFamily: 'Roboto',
       ),
       home: const WelcomeScreen(),
     );

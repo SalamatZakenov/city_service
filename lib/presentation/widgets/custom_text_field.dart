@@ -17,7 +17,6 @@ class CustomTextField extends StatelessWidget {
     this.isPassword = false,
     this.keyboardType = TextInputType.text,
     this.controller,
-    // По умолчанию оставляем их включенными, но даем возможность выключить
     this.autocorrect = true,
     this.enableSuggestions = true,
   });
@@ -29,7 +28,6 @@ class CustomTextField extends StatelessWidget {
       obscureText: isPassword,
       keyboardType: keyboardType,
 
-      // Передаем эти параметры в сам TextField
       autocorrect: autocorrect,
       enableSuggestions: enableSuggestions,
 

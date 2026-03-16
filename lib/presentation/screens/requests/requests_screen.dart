@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../widgets/logo_widget.dart';
+import 'request_detail_screen.dart';
+import 'create_request_screen.dart';
 
 class RequestsScreen extends StatefulWidget {
   const RequestsScreen({super.key});
@@ -12,7 +13,6 @@ class RequestsScreen extends StatefulWidget {
 class _RequestsScreenState extends State<RequestsScreen> {
   String? _activeFilter;
 
-  // 1. Храним состояние галочек
   final Map<String, bool> _statusFilters = {
     'Новое': true,
     'В работе': false,
@@ -41,7 +41,6 @@ class _RequestsScreenState extends State<RequestsScreen> {
     });
   }
 
-  // ... МЕТОД build ОСТАЕТСЯ БЕЗ ИЗМЕНЕНИЙ (до виджетов шторок) ...
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -50,30 +49,18 @@ class _RequestsScreenState extends State<RequestsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(height: 10),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const LogoWidget(width: 110, color: AppColors.darkBackground),
-                Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AppColors.dividerColor),
-                  ),
-                  child: IconButton(
-                    icon: const Icon(Icons.notifications_none, color: AppColors.textDark),
-                    onPressed: () {},
-                  ),
-                ),
-              ],
-            ),
             const SizedBox(height: 24),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text('Заявки', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
                 ElevatedButton.icon(
-                  onPressed: () {},
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const CreateRequestScreen()),
+                    );
+                  },
                   icon: const Icon(Icons.add, size: 20),
                   label: const Text('Создать заявку'),
                   style: ElevatedButton.styleFrom(
@@ -105,12 +92,35 @@ class _RequestsScreenState extends State<RequestsScreen> {
               ),
             ),
             const SizedBox(height: 16),
+            // 5. Список карточек
             Expanded(
               child: ListView(
                 physics: const BouncingScrollPhysics(),
                 children: [
-                  _buildRequestCard(number: '№1K202526', statusText: 'новая', statusBgColor: AppColors.statusNewBg, statusTextColor: AppColors.statusNewText, category: 'Нарушение благоустройства', address: 'Ул. Сейфуллина, 20/1'),
-                  _buildRequestCard(number: '№1S202562', statusText: 'исполнено', statusBgColor: AppColors.statusDoneBg, statusTextColor: AppColors.statusDoneText, category: 'Светофоры и ТСРДД', address: 'Ул. Сейфуллина, 20/1'),
+                  ExpandableRequestCard(
+                    number: '№1K202526',
+                    statusText: 'новая',
+                    statusBgColor: AppColors.statusNewBg,
+                    statusTextColor: AppColors.statusNewText,
+                    category: 'Нарушение благоустройства',
+                    address: 'Ул. Сейфуллина, 20/1',
+                  ),
+                  ExpandableRequestCard(
+                    number: '№1S202562',
+                    statusText: 'исполнено',
+                    statusBgColor: AppColors.statusDoneBg,
+                    statusTextColor: AppColors.statusDoneText,
+                    category: 'Светофоры и ТСРДД',
+                    address: 'Ул. Иманбаева, 20/1',
+                  ),
+                  ExpandableRequestCard(
+                    number: '№1T202510',
+                    statusText: 'в работе',
+                    statusBgColor: AppColors.statusInProgressBg,
+                    statusTextColor: AppColors.statusInProgressText,
+                    category: 'Твердо Бытовые Отходы',
+                    address: 'ул. Абая 5А, пересечение с ул. Момышулы',
+                  ),
                 ],
               ),
             ),
@@ -187,7 +197,6 @@ class _RequestsScreenState extends State<RequestsScreen> {
     );
   }
 
-  // === ЖИВЫЕ ГАЛОЧКИ ДЛЯ СТАТУСА ===
   Widget _buildStatusContent() {
     return StatefulBuilder(
       builder: (BuildContext context, StateSetter setModalState) {
@@ -212,7 +221,6 @@ class _RequestsScreenState extends State<RequestsScreen> {
     );
   }
 
-  // === ЖИВЫЕ ГАЛОЧКИ ДЛЯ КАТЕГОРИЙ ===
   Widget _buildCategoryContent() {
     return StatefulBuilder(
       builder: (BuildContext context, StateSetter setModalState) {
@@ -237,21 +245,18 @@ class _RequestsScreenState extends State<RequestsScreen> {
     );
   }
 
-  // === КАЛЕНДАРЬ С ЗЕЛЕНЫМ КВАДРАТОМ ===
   Widget _buildDateContent() {
     return _buildSheetLayout(
       child: SizedBox(
         height: 280,
         child: Theme(
-          // Переопределяем тему только для календаря
           data: Theme.of(context).copyWith(
             colorScheme: const ColorScheme.light(
-              primary: AppColors.primaryMint, // Цвет выделения (Зеленый)
-              onPrimary: Colors.white, // Текст на зеленом
-              onSurface: AppColors.darkBackground, // Обычный текст
+              primary: AppColors.primaryMint,
+              onPrimary: Colors.white,
+              onSurface: AppColors.darkBackground,
             ),
             datePickerTheme: DatePickerThemeData(
-              // Делаем выделение квадратным с небольшим закруглением!
               dayShape: WidgetStatePropertyAll(
                 RoundedRectangleBorder (
                   borderRadius: BorderRadius.circular(6),
@@ -264,7 +269,6 @@ class _RequestsScreenState extends State<RequestsScreen> {
             firstDate: DateTime(2020),
             lastDate: DateTime(2030),
             onDateChanged: (date) {
-              // Логика при выборе даты
             },
           ),
         ),
@@ -272,12 +276,11 @@ class _RequestsScreenState extends State<RequestsScreen> {
     );
   }
 
-  // Обновленный метод чекбокса (теперь он кликабельный)
   Widget _buildCheckboxRow(String title, bool isChecked, ValueChanged<bool?> onChanged) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: GestureDetector(
-        onTap: () => onChanged(!isChecked), // Можно кликать по всей строке
+        onTap: () => onChanged(!isChecked),
         behavior: HitTestBehavior.opaque,
         child: Row(
           children: [
@@ -307,38 +310,188 @@ class _RequestsScreenState extends State<RequestsScreen> {
       ),
     );
   }
+}
 
-  Widget _buildRequestCard({required String number, required String statusText, required Color statusBgColor, required Color statusTextColor, required String category, required String address}) {
-    // ... (без изменений) ...
+// === НОВЫЙ ВИДЖЕТ РАСКРЫВАЮЩЕЙСЯ КАРТОЧКИ ===
+class ExpandableRequestCard extends StatefulWidget {
+  final String number;
+  final String statusText;
+  final Color statusBgColor;
+  final Color statusTextColor;
+  final String category;
+  final String address;
+
+  const ExpandableRequestCard({
+    super.key,
+    required this.number,
+    required this.statusText,
+    required this.statusBgColor,
+    required this.statusTextColor,
+    required this.category,
+    required this.address,
+  });
+
+  @override
+  State<ExpandableRequestCard> createState() => _ExpandableRequestCardState();
+}
+
+class _ExpandableRequestCardState extends State<ExpandableRequestCard> {
+  bool _isExpanded = false;
+
+  void _toggleExpand() {
+    setState(() {
+      _isExpanded = !_isExpanded;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text('Заявка $number', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(color: statusBgColor, borderRadius: BorderRadius.circular(12)),
-                child: Text(statusText, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: statusTextColor)),
-              ),
-            ],
+          // 1. Верхняя часть
+          GestureDetector(
+            onTap: _toggleExpand,
+            behavior: HitTestBehavior.opaque,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      'Заявка ${widget.number}',
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.darkBackground),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(color: widget.statusBgColor, borderRadius: BorderRadius.circular(12)),
+                      child: Text(widget.statusText, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: widget.statusTextColor)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(widget.category, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.textGrey), maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ),
+                    Row(
+                      children: [
+                        const Text('Подробнее', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
+                        // Стрелочка меняет направление
+                        Icon(_isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, size: 16, color: AppColors.textGrey),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(widget.address, style: const TextStyle(fontSize: 12, color: AppColors.textGrey), maxLines: 1, overflow: TextOverflow.ellipsis),
+              ],
+            ),
           ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(child: Text(category, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.textGrey), maxLines: 1, overflow: TextOverflow.ellipsis)),
-              const Row(children: [Text('Подробнее', style: TextStyle(fontSize: 12, color: AppColors.textGrey)), Icon(Icons.chevron_right, size: 16, color: AppColors.textGrey)]),
-            ],
+
+          // 2. Раскрывающаяся часть (Детали + Фото + Кнопка)
+          AnimatedSize(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+            child: !_isExpanded
+                ? const SizedBox.shrink() // Если закрыто - занимает 0 пикселей
+                : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12.0),
+                  child: Divider(color: AppColors.dividerColor, height: 1),
+                ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Левая колонка с текстом
+                    Expanded(
+                      flex: 3,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildInfoRow('От', 'Монитор Байболды А.'),
+                          _buildInfoRow('Кому', 'ИП CleanUralskCar'),
+                          _buildInfoRow('Категория', 'Благоустройство'),
+                          _buildInfoRow('Взято на работу', 'Да'),
+                          _buildInfoRow('Дата принятие', '10 мая, 2025'),
+                          _buildInfoRow('Срок', '12 мая, 2025'),
+                          _buildInfoRow('Срочность', 'Низкая'),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    // Правая колонка с фото (пока заглушка)
+                    Expanded(
+                      flex: 2,
+                      child: AspectRatio(
+                        aspectRatio: 1,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.grey[200],
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(Icons.image_outlined, color: Colors.grey, size: 40),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                // Кнопка "Посмотреть"
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      // Переход на полный экран заявки
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => RequestDetailScreen(requestNumber: widget.number),
+                        ),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primaryMint.withValues(alpha: 0.15), // Светло-зеленый фон
+                      foregroundColor: AppColors.primaryMint, // Темно-зеленый текст
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: const Text('Посмотреть', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 8),
-          Text(address, style: const TextStyle(fontSize: 12, color: AppColors.textGrey), maxLines: 1, overflow: TextOverflow.ellipsis),
         ],
+      ),
+    );
+  }
+
+  // Вспомогательный виджет для строк "Ключ: Значение"
+  Widget _buildInfoRow(String title, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4.0),
+      child: RichText(
+        text: TextSpan(
+          style: const TextStyle(fontSize: 12, fontFamily: 'Roboto'),
+          children: [
+            TextSpan(text: '$title ', style: const TextStyle(color: AppColors.darkBackground, fontWeight: FontWeight.w600)),
+            TextSpan(text: value, style: const TextStyle(color: AppColors.textGrey, fontWeight: FontWeight.w500)),
+          ],
+        ),
       ),
     );
   }

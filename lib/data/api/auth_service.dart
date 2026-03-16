@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart';
 import '../storage/secure_storage.dart';
 
 class AuthService {
-  // Берем адрес из строки браузера, а не из текста внутри Swagger
   final Dio _dio = Dio(BaseOptions(
     baseUrl: 'https://city-service-production.up.railway.app/api',
     headers: {

@@ -35,10 +35,8 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   @override
   Widget build(BuildContext context) {
-    // Оборачиваем Scaffold в GestureDetector, чтобы ловить клики по пустому месту
     return GestureDetector(
       onTap: () {
-        // Убираем фокус с текстовых полей, что заставляет клавиатуру скрыться
         FocusScope.of(context).unfocus();
       },
       child: Scaffold(
@@ -52,7 +50,7 @@ class _LoginScreenState extends State<LoginScreen> {
               children: [
                 const Spacer(flex: 2),
                 const Center(
-                  child: LogoWidget(width: 120), // Подбери размер, который будет смотреться лучше всего
+                  child: LogoWidget(width: 120),
                 ),
                 const SizedBox(height: 30),
 
@@ -60,7 +58,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   controller: _emailController,
                   hintText: 'Электронная почта',
                   keyboardType: TextInputType.emailAddress,
-                  // Отключаем автозамену и подсказки для почты!
                   autocorrect: false,
                   enableSuggestions: false,
                 ),
@@ -69,8 +66,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   controller: _passwordController,
                   hintText: 'Пароль',
                   isPassword: true,
-                  // Для паролей Flutter отключает их сам, когда obscureText: true,
-                  // но можно добавить для надежности:
                   autocorrect: false,
                   enableSuggestions: false,
                 ),
