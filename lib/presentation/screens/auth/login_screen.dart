@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../widgets/custom_text_field.dart';
-import '../../widgets/logo_widget.dart';
-import '../../widgets/primary_button.dart';
+import '../../../data/api/auth_service.dart';
 import '../main/main_page.dart';
+import '../../widgets/logo_widget.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -15,7 +14,52 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final bool _isLoading = false;
+  final AuthService _authService = AuthService();
+
+  bool _isLoading = false;
+  bool _obscurePassword = true;
+
+  Future<void> _handleLogin() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+
+    if (email.isEmpty || password.isEmpty) {
+      _showError('Пожалуйста, заполните все поля');
+      return;
+    }
+
+    if (!email.contains('@')) {
+      _showError('Email должен содержать символ @');
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    // Теперь получаем текст ошибки (или null)
+    final errorMessage = await _authService.login(email, password);
+
+    if (mounted) setState(() => _isLoading = false);
+
+    // Если errorMessage равен null, значит всё прошло идеально!
+    if (errorMessage == null) {
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const MainPage()),
+        );
+      }
+    } else {
+      // Иначе выводим РЕАЛЬНУЮ причину на экран
+      _showError(errorMessage);
+    }
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.redAccent),
+    );
+  }
 
   @override
   void dispose() {
@@ -24,88 +68,123 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  // Наша заглушка для перехода
-  void _handleLogin() {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const MainPage()),
-    );
-  }
-
-  @override
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        FocusScope.of(context).unfocus();
-      },
-      child: Scaffold(
-        backgroundColor: AppColors.darkBackground,
-        body: SafeArea(
-          child: Padding(
+    return Scaffold(
+      backgroundColor: const Color(0xFF0F1714),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 24.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Spacer(flex: 2),
+                // Логотип зеленого цвета
                 const Center(
-                  child: LogoWidget(width: 120),
+                  child: LogoWidget(width: 140, color: AppColors.primaryMint),
                 ),
                 const SizedBox(height: 30),
 
-                CustomTextField(
+                // Поле: Электронная почта
+                _buildTextField(
                   controller: _emailController,
                   hintText: 'Электронная почта',
                   keyboardType: TextInputType.emailAddress,
-                  autocorrect: false,
-                  enableSuggestions: false,
                 ),
                 const SizedBox(height: 16),
-                CustomTextField(
+
+                // Поле: Пароль
+                _buildTextField(
                   controller: _passwordController,
                   hintText: 'Пароль',
                   isPassword: true,
-                  autocorrect: false,
-                  enableSuggestions: false,
                 ),
-                const SizedBox(height: 15),
+                const SizedBox(height: 16),
 
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton(
-                    onPressed: () {},
-                    style: TextButton.styleFrom(
-                      padding: EdgeInsets.zero,
-                      minimumSize: const Size(0, 0),
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                GestureDetector(
+                  onTap: () {
+                  },
+                  child: const Text(
+                    'Забыли пароль?',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
                     ),
-                    child: const Text(
-                      'Забыли пароль?',
-                      style: TextStyle(
-                        color: AppColors.textWhite,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Кнопка "Войти"
+                SizedBox(
+                  height: 52, // Чуть выше для солидности
+                  child: ElevatedButton(
+                    onPressed: _isLoading ? null : _handleLogin,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primaryMint,
+                      disabledBackgroundColor: AppColors.primaryMint.withValues(alpha: 0.5),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
                       ),
                     ),
+                    child: _isLoading
+                        ? const SizedBox(
+                      height: 24, width: 24,
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                    )
+                        : const Text(
+                      'Войти',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 15),
-
-                _isLoading
-                    ? const Center(
-                  child: CircularProgressIndicator(
-                    color: AppColors.primaryMint,
-                  ),
-                )
-                    : PrimaryButton(
-                  text: 'Войти',
-                  onPressed: _handleLogin,
-                ),
-                const Spacer(flex: 3),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String hintText,
+    bool isPassword = false,
+    TextInputType keyboardType = TextInputType.text,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white70, width: 1.0), // Сделал контур чуть светлее, как на макете
+      ),
+      child: TextField(
+        controller: controller,
+        obscureText: isPassword && _obscurePassword,
+        keyboardType: keyboardType,
+        style: const TextStyle(color: Colors.white, fontSize: 16),
+        decoration: InputDecoration(
+          hintText: hintText,
+          hintStyle: const TextStyle(color: Colors.white54, fontSize: 15),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          suffixIcon: isPassword
+              ? IconButton(
+            // Используем иконку с перечеркнутым глазиком по умолчанию, как на макете
+            icon: Icon(
+              _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+              color: Colors.white54,
+              size: 22,
+            ),
+            onPressed: () {
+              setState(() {
+                _obscurePassword = !_obscurePassword;
+              });
+            },
+          )
+              : null,
+          border: InputBorder.none,
         ),
       ),
     );
