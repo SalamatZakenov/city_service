@@ -45,5 +45,12 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+    	<string>Нам нужна ваша геопозиция для удобного выбора адреса заявки на карте.</string>
+    <key>NSCameraUsageDescription</key>
+    	<string>Нам нужен доступ к камере, чтобы вы могли сделать снимок проблемы прямо из приложения.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    	<string>Нам нужен доступ к галерее, чтобы вы могли выбрать фотографию проблемы из уже сделанных снимков.</string>
+
 </dict>
 </plist>

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/theme/app_colors.dart';
 import 'create_request_screen.dart';
 import 'request_detail_screen.dart';
@@ -19,7 +20,6 @@ class _RequestsScreenState extends State<RequestsScreen> {
   String? _selectedStatusFilter;
   DateTime? _selectedDateFilter;
 
-  // Храним сырые данные категорий с сервера
   List<dynamic> _serverCategories = [];
   bool _isLoadingCategories = true;
 
@@ -31,7 +31,6 @@ class _RequestsScreenState extends State<RequestsScreen> {
     _loadAllData();
   }
 
-  // Загружаем и заявки, и категории
   void _loadAllData() {
     setState(() {
       _requestsFuture = _requestService.getRequests();
@@ -39,7 +38,6 @@ class _RequestsScreenState extends State<RequestsScreen> {
     _loadCategories();
   }
 
-  // Метод загрузки категорий с сервера
   Future<void> _loadCategories() async {
     final categories = await _requestService.getCategories();
     if (mounted) {
@@ -184,7 +182,15 @@ class _RequestsScreenState extends State<RequestsScreen> {
     }
   }
 
-  // Найти имя категории по её ID (для отображения в карточке)
+  String _translateUrgency(String urgencyEn) {
+    switch (urgencyEn.toLowerCase()) {
+      case 'low': return 'Низкая';
+      case 'medium': return 'Средняя';
+      case 'critical': return 'Критичная';
+      default: return 'Средняя';
+    }
+  }
+
   String _getCategoryNameById(dynamic id) {
     if (id == null) return 'Без категории';
     try {
@@ -192,6 +198,17 @@ class _RequestsScreenState extends State<RequestsScreen> {
       return cat['name'];
     } catch (e) {
       return 'Без категории';
+    }
+  }
+
+  String _formatDateString(String? dateStr) {
+    if (dateStr == null || dateStr.isEmpty) return 'Не указано';
+    try {
+      final date = DateTime.parse(dateStr);
+      final months = ['янв.', 'фев.', 'мар.', 'апр.', 'мая', 'июн.', 'июл.', 'авг.', 'сен.', 'окт.', 'ноя.', 'дек.'];
+      return '${date.day} ${months[date.month - 1]} ${date.year}';
+    } catch (e) {
+      return 'Неизвестно';
     }
   }
 
@@ -212,7 +229,6 @@ class _RequestsScreenState extends State<RequestsScreen> {
       dateFilterLabel = "${_selectedDateFilter!.day.toString().padLeft(2, '0')}.${_selectedDateFilter!.month.toString().padLeft(2, '0')}";
     }
 
-    // Собираем список названий категорий для фильтра (+ пункт "Все")
     List<String> dynamicCategoryNames = ['Все'];
     if (!_isLoadingCategories) {
       dynamicCategoryNames.addAll(_serverCategories.map((c) => c['name'].toString()));
@@ -242,33 +258,13 @@ class _RequestsScreenState extends State<RequestsScreen> {
 
             Row(
               children: [
-                Expanded(
-                  child: _buildFilterChip(
-                    dateFilterLabel,
-                    _pickDateFilter,
-                    isActive: _selectedDateFilter != null,
-                  ),
-                ),
+                Expanded(child: _buildFilterChip(dateFilterLabel, _pickDateFilter, isActive: _selectedDateFilter != null)),
                 const SizedBox(width: 8),
-                Expanded(
-                  child: _buildFilterChip(
-                    _isLoadingCategories ? 'Загрузка...' : (_selectedCategoryFilter ?? 'Категория'),
-                        () {
-                      if (!_isLoadingCategories) {
-                        _showSelectionSheet(title: 'Фильтр по категории', options: dynamicCategoryNames, currentValue: _selectedCategoryFilter, onSelected: (val) => setState(() => _selectedCategoryFilter = val));
-                      }
-                    },
-                    isActive: _selectedCategoryFilter != null,
-                  ),
-                ),
+                Expanded(child: _buildFilterChip(_isLoadingCategories ? 'Загрузка...' : (_selectedCategoryFilter ?? 'Категория'), () {
+                  if (!_isLoadingCategories) _showSelectionSheet(title: 'Фильтр по категории', options: dynamicCategoryNames, currentValue: _selectedCategoryFilter, onSelected: (val) => setState(() => _selectedCategoryFilter = val));
+                }, isActive: _selectedCategoryFilter != null)),
                 const SizedBox(width: 8),
-                Expanded(
-                  child: _buildFilterChip(
-                    _selectedStatusFilter ?? 'Статус',
-                        () => _showSelectionSheet(title: 'Фильтр по статусу', options: _statuses, currentValue: _selectedStatusFilter, onSelected: (val) => setState(() => _selectedStatusFilter = val)),
-                    isActive: _selectedStatusFilter != null,
-                  ),
-                ),
+                Expanded(child: _buildFilterChip(_selectedStatusFilter ?? 'Статус', () => _showSelectionSheet(title: 'Фильтр по статусу', options: _statuses, currentValue: _selectedStatusFilter, onSelected: (val) => setState(() => _selectedStatusFilter = val)), isActive: _selectedStatusFilter != null)),
               ],
             ),
             const SizedBox(height: 24),
@@ -293,14 +289,12 @@ class _RequestsScreenState extends State<RequestsScreen> {
 
                   var requests = snapshot.data ?? [];
 
-                  // Локальная фильтрация
                   if (_selectedStatusFilter != null) {
                     final statusEn = _selectedStatusFilter == 'Новая' ? 'new' : _selectedStatusFilter == 'В работе' ? 'in_progress' : 'done';
                     requests = requests.where((r) => r['status'] == statusEn).toList();
                   }
 
                   if (_selectedCategoryFilter != null) {
-                    // Ищем ID выбранной категории
                     final selectedCatObj = _serverCategories.firstWhere((c) => c['name'] == _selectedCategoryFilter, orElse: () => null);
                     if (selectedCatObj != null) {
                       requests = requests.where((r) => r['category_id'].toString() == selectedCatObj['id'].toString()).toList();
@@ -313,9 +307,7 @@ class _RequestsScreenState extends State<RequestsScreen> {
                       if (createdAtString == null) return false;
                       try {
                         final requestDate = DateTime.parse(createdAtString.toString());
-                        return requestDate.year == _selectedDateFilter!.year &&
-                            requestDate.month == _selectedDateFilter!.month &&
-                            requestDate.day == _selectedDateFilter!.day;
+                        return requestDate.year == _selectedDateFilter!.year && requestDate.month == _selectedDateFilter!.month && requestDate.day == _selectedDateFilter!.day;
                       } catch (e) {
                         return false;
                       }
@@ -335,25 +327,30 @@ class _RequestsScreenState extends State<RequestsScreen> {
                       itemBuilder: (context, index) {
                         final req = requests[index];
                         final status = req['status'] ?? 'new';
-
-                        // Теперь берем ID категории из заявки и ищем её название
                         final categoryName = _getCategoryNameById(req['category_id']);
-
-                        final title = req['title'] ?? 'Без названия';
                         final location = req['location'] ?? 'Адрес не указан';
+
+                        // ВОТ ЗДЕСЬ ИСПРАВЛЕНИЕ: Мы сохраняем полный ID
                         final idString = req['id']?.toString() ?? '???';
-                        final shortId = idString.length > 8 ? idString.substring(0, 8) : idString;
+                        final shortId = idString.length > 8 ? idString.substring(0, 8).toUpperCase() : idString.toUpperCase();
+
                         final urgency = req['urgency'] != null ? _translateUrgency(req['urgency']) : 'Неизвестно';
+                        final rawCreatedAt = req['created_at'] ?? req['createdAt'];
+                        final rawDeadline = req['deadline'];
+                        final imageUrl = req['photo_url'] ?? req['photo'] ?? req['imageUrl'];
 
                         return ExpandableRequestCard(
-                          number: shortId,
+                          rawId: idString, // Передаем полный ID для поиска на сервере
+                          number: shortId, // Передаем короткий ID для красоты на экране
                           statusText: _translateStatus(status),
                           statusBgColor: _getStatusBgColor(status),
                           statusTextColor: _getStatusTextColor(status),
-                          category: categoryName, // Отображаем реальную категорию!
-                          title: title, // Отображаем название заявки!
+                          category: categoryName,
                           address: location,
                           urgency: urgency,
+                          createdAtDate: _formatDateString(rawCreatedAt),
+                          deadlineDate: _formatDateString(rawDeadline),
+                          imageUrlPath: imageUrl,
                         );
                       },
                     ),
@@ -365,12 +362,6 @@ class _RequestsScreenState extends State<RequestsScreen> {
         ),
       ),
     );
-  }
-
-  String _translateUrgency(String urgencyEn) {
-    if (urgencyEn == 'low') return 'Низкая';
-    if (urgencyEn == 'critical') return 'Критичная';
-    return 'Средняя';
   }
 
   Widget _buildFilterChip(String label, VoidCallback onTap, {bool isActive = false}) {
@@ -385,13 +376,7 @@ class _RequestsScreenState extends State<RequestsScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Flexible(
-                child: Text(
-                    label,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: isActive ? AppColors.primaryMint : Colors.grey.shade600, fontSize: 14, fontWeight: isActive ? FontWeight.w600 : FontWeight.w500)
-                ),
-              ),
+              Flexible(child: Text(label, overflow: TextOverflow.ellipsis, style: TextStyle(color: isActive ? AppColors.primaryMint : Colors.grey.shade600, fontSize: 14, fontWeight: isActive ? FontWeight.w600 : FontWeight.w500))),
               const SizedBox(width: 4),
               Icon(Icons.keyboard_arrow_down, color: isActive ? AppColors.primaryMint : Colors.grey.shade600, size: 18),
             ],
@@ -403,25 +388,31 @@ class _RequestsScreenState extends State<RequestsScreen> {
 }
 
 class ExpandableRequestCard extends StatefulWidget {
-  final String number;
+  final String rawId; // ПОЛНЫЙ ID
+  final String number; // КОРОТКИЙ ID
   final String statusText;
   final Color statusBgColor;
   final Color statusTextColor;
   final String category;
-  final String title;
   final String address;
   final String urgency;
+  final String createdAtDate;
+  final String deadlineDate;
+  final String? imageUrlPath;
 
   const ExpandableRequestCard({
     super.key,
-    required this.number,
+    required this.rawId, // ПОЛНЫЙ ID
+    required this.number, // КОРОТКИЙ ID
     required this.statusText,
     required this.statusBgColor,
     required this.statusTextColor,
     required this.category,
-    required this.title,
     required this.address,
     required this.urgency,
+    required this.createdAtDate,
+    required this.deadlineDate,
+    this.imageUrlPath,
   });
 
   @override
@@ -434,6 +425,11 @@ class _ExpandableRequestCardState extends State<ExpandableRequestCard> {
 
   @override
   Widget build(BuildContext context) {
+    final String baseUrl = 'https://city-service-production.up.railway.app';
+    String cleanPath = widget.imageUrlPath ?? '';
+    if (cleanPath.isNotEmpty && !cleanPath.startsWith('/')) cleanPath = '/$cleanPath';
+    final String fullImageUrl = cleanPath.isNotEmpty ? '$baseUrl$cleanPath' : '';
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
@@ -449,45 +445,85 @@ class _ExpandableRequestCardState extends State<ExpandableRequestCard> {
               children: [
                 Row(
                   children: [
-                    Text('Заявка ${widget.number}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
-                    const SizedBox(width: 8),
-                    Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: widget.statusBgColor, borderRadius: BorderRadius.circular(12)), child: Text(widget.statusText, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: widget.statusTextColor))),
+                    Text('Заявка №${widget.number}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
+                    const SizedBox(width: 10),
+                    Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: widget.statusBgColor, borderRadius: BorderRadius.circular(12)), child: Text(widget.statusText, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: widget.statusTextColor))),
                   ],
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Expanded(child: Text(widget.title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.darkBackground), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                    Row(children: [const Text('Подробнее', style: TextStyle(fontSize: 12, color: AppColors.textGrey)), Icon(_isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, size: 16, color: AppColors.textGrey)]),
+                    Expanded(child: Text(widget.category, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF64748B)), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                    Row(children: [const Text('Подробнее', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF94A3B8))), Icon(_isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, size: 18, color: const Color(0xFF94A3B8))]),
                   ],
                 ),
                 const SizedBox(height: 6),
-                Text(widget.address, style: const TextStyle(fontSize: 13, color: AppColors.textGrey), maxLines: 1, overflow: TextOverflow.ellipsis),
+                Text(widget.address, style: const TextStyle(fontSize: 14, color: Color(0xFF94A3B8), fontWeight: FontWeight.w400), maxLines: 1, overflow: TextOverflow.ellipsis),
               ],
             ),
           ),
+
           AnimatedSize(
             duration: const Duration(milliseconds: 300),
             curve: Curves.easeInOut,
             child: !_isExpanded ? const SizedBox.shrink() : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Padding(padding: EdgeInsets.symmetric(vertical: 12.0), child: Divider(color: AppColors.dividerColor, height: 1)),
+                const Padding(padding: EdgeInsets.symmetric(vertical: 14.0), child: Divider(color: Color(0xFFF1F5F9), height: 1, thickness: 1)),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(flex: 3, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      _buildInfoRow('Категория', widget.category),
-                      _buildInfoRow('Срочность', widget.urgency),
-                      _buildInfoRow('Взято в работу', 'Нет')
-                    ])),
+                    Expanded(
+                        flex: 4,
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildDetailRow('От', 'Монитор Байболды А.'),
+                              _buildDetailRow('Кому', 'ИП CleanUralskCar'),
+                              _buildDetailRow('Категория', widget.category),
+                              _buildDetailRow('Взято на работу', 'Да'),
+                              _buildDetailRow('Дата принятия', widget.createdAtDate),
+                              _buildDetailRow('Срок', widget.deadlineDate),
+                              _buildDetailRow('Срочность', widget.urgency),
+                            ]
+                        )
+                    ),
                     const SizedBox(width: 12),
-                    Expanded(flex: 2, child: AspectRatio(aspectRatio: 1, child: Container(decoration: BoxDecoration(color: Colors.grey[200], borderRadius: BorderRadius.circular(12)), child: const Icon(Icons.image_outlined, color: Colors.grey, size: 40)))),
+                    Expanded(
+                        flex: 3,
+                        child: AspectRatio(
+                            aspectRatio: 1,
+                            child: Container(
+                                decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(12)),
+                                child: fullImageUrl.isNotEmpty
+                                    ? ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: CachedNetworkImage(
+                                    imageUrl: fullImageUrl,
+                                    fit: BoxFit.cover,
+                                    placeholder: (context, url) => const Center(child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primaryMint)),
+                                    errorWidget: (context, url, error) => const Icon(Icons.image_outlined, color: Color(0xFFCBD5E1), size: 40),
+                                  ),
+                                )
+                                    : const Icon(Icons.image_outlined, color: Color(0xFFCBD5E1), size: 40)
+                            )
+                        )
+                    ),
                   ],
                 ),
                 const SizedBox(height: 16),
-                SizedBox(width: double.infinity, child: ElevatedButton(onPressed: () { Navigator.push(context, MaterialPageRoute(builder: (context) => RequestDetailScreen(requestNumber: widget.number))); }, style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryMint.withValues(alpha: 0.15), foregroundColor: AppColors.primaryMint, elevation: 0, padding: const EdgeInsets.symmetric(vertical: 12), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))), child: const Text('Посмотреть', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)))),
+                SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                        onPressed: () {
+                          // ВОТ ЗДЕСЬ ПЕРЕДАЕМ widget.rawId ВМЕСТО widget.number!
+                          Navigator.push(context, MaterialPageRoute(builder: (context) => RequestDetailScreen(requestNumber: widget.rawId)));
+                        },
+                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryMint.withValues(alpha: 0.12), foregroundColor: AppColors.primaryMint, elevation: 0, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                        child: const Text('Посмотреть', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600))
+                    )
+                ),
               ],
             ),
           ),
@@ -496,7 +532,18 @@ class _ExpandableRequestCardState extends State<ExpandableRequestCard> {
     );
   }
 
-  Widget _buildInfoRow(String title, String value) {
-    return Padding(padding: const EdgeInsets.only(bottom: 4.0), child: RichText(text: TextSpan(style: const TextStyle(fontSize: 12, fontFamily: 'Roboto'), children: [TextSpan(text: '$title ', style: const TextStyle(color: AppColors.darkBackground, fontWeight: FontWeight.w600)), TextSpan(text: value, style: const TextStyle(color: AppColors.textGrey, fontWeight: FontWeight.w500))])));
+  Widget _buildDetailRow(String title, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6.0),
+      child: RichText(
+        text: TextSpan(
+          style: const TextStyle(fontSize: 13, fontFamily: 'Roboto'),
+          children: [
+            TextSpan(text: '$title ', style: const TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
+            TextSpan(text: value, style: const TextStyle(color: Color(0xFF94A3B8), fontWeight: FontWeight.w500)),
+          ],
+        ),
+      ),
+    );
   }
 }

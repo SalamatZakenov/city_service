@@ -1,5 +1,7 @@
+import 'dart:io'; // Добавили для File
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart'; // Добавили для basename
 import '../storage/secure_storage.dart';
 
 class RequestService {
@@ -11,97 +13,101 @@ class RequestService {
     },
   ));
 
-  // ==========================================
   // 1. Получить список всех заявок
-  // ==========================================
   Future<List<dynamic>> getRequests() async {
     try {
       final token = await SecureStorage.getToken();
-
-      if (token == null) {
-        debugPrint('Токен не найден! Нужно заново авторизоваться.');
-        return [];
-      }
+      if (token == null) return [];
 
       final response = await _dio.get(
         '/requests',
-        options: Options(
-          headers: {
-            'Authorization': 'Bearer $token',
-          },
-        ),
+        options: Options(headers: {'Authorization': 'Bearer $token'}),
       );
 
       if (response.statusCode == 200) {
-        debugPrint('Заявки успешно загружены!');
-
         if (response.data is List) {
           return response.data;
         } else if (response.data is Map && response.data.containsKey('data')) {
           return response.data['data'];
         }
-
         return response.data;
       }
       return [];
-    } on DioException catch (e) {
-      debugPrint('Ошибка сервера при загрузке заявок: ${e.response?.statusCode}');
-      debugPrint('Тело ответа: ${e.response?.data}');
-      return [];
     } catch (e) {
-      debugPrint('Неизвестная ошибка: $e');
       return [];
     }
   }
 
-  // ==========================================
-  // 2. ВОТ НАШ НОВЫЙ КОД: Создание новой заявки
-  // ==========================================
-  Future<String?> createRequest({
+// === ОБНОВЛЕННЫЙ МЕТОД: Создание заявки (возвращает Map с ID) ===
+  Future<Map<String, dynamic>> createRequest({
     required String title,
     required int categoryId,
     required String description,
     required String urgency,
     required String location,
     String? deadline,
+    File? photo,
   }) async {
     try {
       final token = await SecureStorage.getToken();
-      if (token == null) return 'Необходима авторизация';
+      if (token == null) return {'success': false, 'error': 'Необходима авторизация'};
 
-      // Упаковываем данные в формат multipart/form-data
-      final formData = FormData.fromMap({
+      final Map<String, dynamic> formDataMap = {
         'title': title,
         'category_id': categoryId,
         'description': description,
         'urgency': urgency,
         'location': location,
         if (deadline != null) 'deadline': deadline,
-      });
+      };
 
-      debugPrint('=== ОТПРАВЛЯЕМ НОВУЮ ЗАЯВКУ ===');
+      if (photo != null) {
+        final String fileName = basename(photo.path);
+        formDataMap['photo'] = await MultipartFile.fromFile(photo.path, filename: fileName);
+      }
+
+      final formData = FormData.fromMap(formDataMap);
+
+      debugPrint('=== ОТПРАВЛЯЕМ НОВУЮ ЗАЯВКУ С ФОТО ===');
       final response = await _dio.post(
         '/requests',
         data: formData,
-        options: Options(headers: {'Authorization': 'Bearer $token'}),
+        options: Options(headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'multipart/form-data',
+        }),
       );
 
       if (response.statusCode == 201 || response.statusCode == 200) {
         debugPrint('✅ Заявка успешно создана!');
-        return null; // Нет ошибок
+
+        // Пытаемся вытащить ID созданной заявки из ответа сервера
+        String newId = '';
+        if (response.data is Map) {
+          newId = response.data['id']?.toString() ?? response.data['data']?['id']?.toString() ?? '';
+        }
+
+        return {'success': true, 'id': newId};
       }
-      return 'Неожиданный ответ сервера: ${response.statusCode}';
+      return {'success': false, 'error': 'Неожиданный ответ сервера: ${response.statusCode}'};
 
     } on DioException catch (e) {
-      debugPrint('Ошибка создания заявки: ${e.response?.data}');
-      return 'Ошибка: ${e.response?.data ?? e.message}';
+      debugPrint('Ошибка Dio: ${e.response?.data}');
+      String errorMessage = 'Ошибка сервера ${e.response?.statusCode ?? ""}';
+
+      if (e.response?.data is Map<String, dynamic>) {
+        errorMessage = e.response?.data['error'] ?? e.response?.data['message'] ?? errorMessage;
+      } else if (e.response?.data is String) {
+        errorMessage = 'Сервер временно недоступен (503). Попробуйте без фото.';
+      }
+
+      return {'success': false, 'error': errorMessage};
     } catch (e) {
-      return 'Внутренняя ошибка: $e';
+      return {'success': false, 'error': 'Внутренняя ошибка: $e'};
     }
   }
-  // ==========================================
-  // 3. Получить список категорий с сервера
-  // ==========================================
+
+  // 3. Получить список категорий (без изменений)
   Future<List<dynamic>> getCategories() async {
     try {
       final token = await SecureStorage.getToken();
@@ -113,7 +119,6 @@ class RequestService {
       );
 
       if (response.statusCode == 200) {
-        // Бэкенд возвращает JSON, где массив лежит внутри ключа "data" (судя по твоему скриншоту)
         if (response.data is Map && response.data.containsKey('data')) {
           return response.data['data'];
         }
@@ -121,7 +126,6 @@ class RequestService {
       }
       return [];
     } catch (e) {
-      debugPrint('Ошибка загрузки категорий: $e');
       return [];
     }
   }
