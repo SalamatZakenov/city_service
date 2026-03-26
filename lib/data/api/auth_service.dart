@@ -28,14 +28,12 @@ class AuthService {
       debugPrint('Тело ответа: ${response.data}');
 
       if (response.statusCode == 200) {
-        // Пробуем достать токен. Иногда бэкенд кладет его в response.data['token'],
-        // а иногда в response.data['data']['token']. Проверим оба варианта:
         final token = response.data['token'] ?? response.data['data']?['token'];
 
         if (token != null) {
           await SecureStorage.saveToken(token);
           debugPrint('✅ Токен успешно сохранен!');
-          return null; // Возвращаем null, значит ОШИБОК НЕТ
+          return null;
         } else {
           return 'Сервер ответил 200, но токена в ответе нет: ${response.data}';
         }
@@ -48,7 +46,6 @@ class AuthService {
       debugPrint('Ответ: ${e.response?.data}');
 
       if (e.response != null) {
-        // Возвращаем прямую ошибку от бэкенда
         return 'Ошибка ${e.response?.statusCode}: ${e.response?.data}';
       }
       return 'Ошибка сети: ${e.message}';

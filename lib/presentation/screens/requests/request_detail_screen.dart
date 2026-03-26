@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:dio/dio.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../data/api/request_service.dart';
+import '../../widgets/global_header.dart';
 
 class RequestDetailScreen extends StatefulWidget {
   final String requestNumber;
@@ -17,15 +18,21 @@ class RequestDetailScreen extends StatefulWidget {
 
 class _RequestDetailScreenState extends State<RequestDetailScreen> {
   final RequestService _requestService = RequestService();
-  final MapController _mapController = MapController();
 
   bool _isLoading = true;
   Map<String, dynamic>? _requestData;
   List<dynamic> _categories = [];
 
-  // Координаты для карты (по умолчанию центр Алматы)
   LatLng _locationCoords = const LatLng(43.238949, 76.889709);
   bool _isMapLoading = true;
+
+  // === СТАТИЧНЫЙ СПИСОК ПРИЧИН ОТМЕНЫ ===
+  final List<String> _cancellationReasons = [
+    'Ошибочная заявка',
+    'Заявка не актуальна',
+    'Неправильные данные',
+    'Другая причина'
+  ];
 
   @override
   void initState() {
@@ -33,7 +40,6 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     _fetchRequestDetails();
   }
 
-  // === СКАЧИВАЕМ ДАННЫЕ ЗАЯВКИ ===
   Future<void> _fetchRequestDetails() async {
     try {
       _categories = await _requestService.getCategories();
@@ -50,7 +56,6 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
           _isLoading = false;
         });
 
-        // Если нашли заявку, пробуем получить её координаты по адресу
         if (request != null && request['location'] != null) {
           _getCoordsFromAddress(request['location']);
         }
@@ -60,17 +65,12 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     }
   }
 
-  // === ПЕРЕВОДИМ ТЕКСТ АДРЕСА В КООРДИНАТЫ ДЛЯ КАРТЫ ===
   Future<void> _getCoordsFromAddress(String address) async {
     try {
       final dio = Dio();
       final response = await dio.get(
         'https://nominatim.openstreetmap.org/search',
-        queryParameters: {
-          'q': address,
-          'format': 'json',
-          'limit': 1,
-        },
+        queryParameters: {'q': address, 'format': 'json', 'limit': 1},
         options: Options(headers: {'User-Agent': 'kz.cityservice.app'}),
       );
 
@@ -82,8 +82,6 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
             _locationCoords = LatLng(lat, lon);
             _isMapLoading = false;
           });
-          // Двигаем карту на новую точку
-          _mapController.move(_locationCoords, 16.0);
         }
       } else {
         if (mounted) setState(() => _isMapLoading = false);
@@ -93,7 +91,235 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     }
   }
 
-  // Вспомогательные методы форматирования
+  // === ПЕРВЫЙ BOTTOM SHEET: "ПРИЧИНА ОТМЕНЫ" ===
+  void _showCancellationInitialSheet() {
+    String? localSelectedReason;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final bool isReasonSelected = localSelectedReason != null;
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 24.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Заголовок
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text('Причина отмены', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
+                    ),
+                    const SizedBox(height: 16),
+
+                    GestureDetector(
+                      onTap: () async {
+                        final result = await _showReasonSelectionSheet(currentSelection: localSelectedReason);
+
+                        if (result != null) {
+                          setModalState(() {
+                            localSelectedReason = result;
+                          });
+                        }
+                      },
+                      behavior: HitTestBehavior.opaque,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        decoration: BoxDecoration(
+                          color: isReasonSelected ? const Color(0xFFF1F5F9) : Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey.shade300),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                                isReasonSelected ? Icons.assignment_outlined : Icons.document_scanner_outlined,
+                                color: isReasonSelected ? AppColors.darkBackground : Colors.grey.shade600,
+                                size: 22
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                localSelectedReason ?? 'Выберите причину',
+                                style: TextStyle(
+                                    fontSize: 15,
+                                    color: isReasonSelected ? AppColors.darkBackground : Colors.grey.shade600,
+                                    fontWeight: isReasonSelected ? FontWeight.w600 : FontWeight.w500
+                                ),
+                              ),
+                            ),
+                            // Стрелочка
+                            Icon(Icons.keyboard_arrow_right, color: Colors.grey.shade500, size: 22),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+
+                    // === КНОПКИ ВНИЗУ ===
+                    Row(
+                      children: [
+                        // Кнопка Назад
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(context),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              side: BorderSide(color: Colors.grey.shade300, width: 1.5),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            child: const Text('Назад', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey)),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () {
+                              if (isReasonSelected) {
+                                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Заявка отменена: $localSelectedReason')));
+                                Navigator.pop(context);
+                              } else {
+                                Navigator.pop(context);
+                              }
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: isReasonSelected ? Colors.redAccent : const Color(0xFFE2E8F0),
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              elevation: 0,
+                            ),
+                            child: const Text('Отменить', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                          ),
+                        ),
+                      ],
+                    )
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // === ВТОРОЙ BOTTOM SHEET: "ВЫБОР ПРИЧИНЫ" ===
+  Future<String?> _showReasonSelectionSheet({required String? currentSelection}) async {
+    return await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.white,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (context) {
+        String? tempSelection = currentSelection;
+
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 24.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Заголовок
+                    const Text('Причина отмены', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
+                    const SizedBox(height: 24),
+
+                    Flexible(
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        physics: const BouncingScrollPhysics(),
+                        itemCount: _cancellationReasons.length,
+                        itemBuilder: (context, index) {
+                          final reason = _cancellationReasons[index];
+                          final bool isSelected = tempSelection == reason;
+
+                          return GestureDetector(
+                            onTap: () {
+                              setModalState(() {
+                                tempSelection = reason;
+                              });
+                            },
+                            behavior: HitTestBehavior.opaque,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 16.0),
+                              child: Row(
+                                children: [
+                                  // Иконка
+                                  const Icon(Icons.document_scanner_outlined, color: Colors.grey, size: 22),
+                                  const SizedBox(width: 12),
+                                  // Текст причины
+                                  Expanded(
+                                    child: Text(
+                                        reason,
+                                        style: TextStyle(
+                                            fontSize: 15,
+                                            color: isSelected ? AppColors.darkBackground : Colors.grey.shade700,
+                                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500
+                                        )
+                                    ),
+                                  ),
+                                  // Чекбокс
+                                  SizedBox(
+                                    height: 20, width: 20,
+                                    child: Checkbox(
+                                      value: isSelected,
+                                      onChanged: (val) {
+                                        setModalState(() {
+                                          tempSelection = reason;
+                                        });
+                                      },
+                                      activeColor: AppColors.primaryMint,
+                                      shape: const CircleBorder(),
+                                      side: BorderSide(color: Colors.grey.shade400, width: 1.5),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+
+                    // === КНОПКА ВНИЗУ ===
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: tempSelection == null
+                            ? null
+                            : () {
+                          Navigator.pop(context, tempSelection);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primaryMint,
+                          disabledBackgroundColor: const Color(0xFFE2E8F0),
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          elevation: 0,
+                        ),
+                        child: const Text('Выбрать', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Вспомогательные методы
   String _getCategoryName(dynamic categoryId) {
     if (categoryId == null) return 'Без категории';
     try {
@@ -101,33 +327,6 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
       return cat['name'];
     } catch (e) {
       return 'Без категории';
-    }
-  }
-
-  String _translateStatus(String? statusEn) {
-    switch (statusEn?.toLowerCase()) {
-      case 'new': return 'Новая';
-      case 'in_progress': return 'В работе';
-      case 'done': return 'Исполнено';
-      default: return 'Новая';
-    }
-  }
-
-  Color _getStatusBgColor(String? statusEn) {
-    switch (statusEn?.toLowerCase()) {
-      case 'new': return AppColors.statusNewBg;
-      case 'in_progress': return AppColors.statusInProgressBg;
-      case 'done': return AppColors.statusDoneBg;
-      default: return AppColors.statusNewBg;
-    }
-  }
-
-  Color _getStatusTextColor(String? statusEn) {
-    switch (statusEn?.toLowerCase()) {
-      case 'new': return AppColors.statusNewText;
-      case 'in_progress': return AppColors.statusInProgressText;
-      case 'done': return AppColors.statusDoneText;
-      default: return AppColors.statusNewText;
     }
   }
 
@@ -140,44 +339,11 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     }
   }
 
-  String _formatDateString(String? dateStr) {
-    if (dateStr == null || dateStr.isEmpty) return 'Не указано';
-    try {
-      final date = DateTime.parse(dateStr);
-      final months = ['янв.', 'фев.', 'мар.', 'апр.', 'мая', 'июн.', 'июл.', 'авг.', 'сен.', 'окт.', 'ноя.', 'дек.'];
-      return '${date.day} ${months[date.month - 1]} ${date.year}';
-    } catch (e) {
-      return 'Неизвестно';
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final displayId = widget.requestNumber.length > 8
-        ? widget.requestNumber.substring(0, 8).toUpperCase()
-        : widget.requestNumber.toUpperCase();
-
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: true,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.darkBackground, size: 20),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          'Заявка №$displayId',
-          style: const TextStyle(color: AppColors.darkBackground, fontSize: 18, fontWeight: FontWeight.bold),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.edit_outlined, color: AppColors.darkBackground),
-            onPressed: () {}, // Заглушка для редактирования
-          )
-        ],
-      ),
+      appBar: const GlobalHeader(),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: AppColors.primaryMint))
           : _requestData == null
@@ -187,18 +353,12 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
   }
 
   Widget _buildContent() {
-    // Извлекаем данные
-    final status = _requestData!['status'];
+    final displayId = widget.requestNumber.length > 8 ? widget.requestNumber.substring(0, 8).toUpperCase() : widget.requestNumber.toUpperCase();
     final title = _requestData!['title'] ?? 'Без названия';
     final description = _requestData!['description'] ?? 'Описание отсутствует';
-    final categoryId = _requestData!['category_id'];
-    final categoryName = _getCategoryName(categoryId);
+    final categoryName = _getCategoryName(_requestData!['category_id']);
     final location = _requestData!['location'] ?? 'Адрес не указан';
     final urgency = _translateUrgency(_requestData!['urgency']);
-    final createdAt = _formatDateString(_requestData!['created_at'] ?? _requestData!['createdAt']);
-    final deadline = _formatDateString(_requestData!['deadline']);
-
-    // URL фото
     final String baseUrl = 'https://city-service-production.up.railway.app';
     String rawPhotoUrl = _requestData!['photo_url'] ?? _requestData!['photo'] ?? '';
     if (rawPhotoUrl.isNotEmpty && !rawPhotoUrl.startsWith('/')) rawPhotoUrl = '/$rawPhotoUrl';
@@ -209,121 +369,130 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // === КАРТА С ЛОКАЦИЕЙ ===
-          SizedBox(
-            height: 220,
-            width: double.infinity,
-            child: _isMapLoading
-                ? const Center(child: CircularProgressIndicator(color: AppColors.primaryMint))
-                : FlutterMap(
-              mapController: _mapController,
-              options: MapOptions(
-                initialCenter: _locationCoords,
-                initialZoom: 16.0,
-                interactionOptions: const InteractionOptions(flags: InteractiveFlag.none), // Делаем карту статичной, чтобы не мешала скроллу
-              ),
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Row(
               children: [
-                TileLayer(
-                  urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-                  subdomains: const ['a', 'b', 'c', 'd'],
-                  userAgentPackageName: 'kz.cityservice.app',
+                GestureDetector(
+                  onTap: () => Navigator.pop(context),
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+                    child: const Icon(Icons.arrow_back_ios_new, color: AppColors.darkBackground, size: 20),
+                  ),
                 ),
-                MarkerLayer(
-                  markers: [
-                    Marker(
-                      point: _locationCoords,
-                      width: 60, height: 60,
-                      child: const Icon(Icons.location_on, size: 50, color: Colors.redAccent),
-                    ),
-                  ],
-                ),
+                const SizedBox(width: 16),
+                Text('Заявка №$displayId', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
               ],
             ),
           ),
-
+          const SizedBox(height: 20),
           Padding(
-            padding: const EdgeInsets.all(20.0),
+            padding: const EdgeInsets.symmetric(horizontal: 20.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Статус
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(color: _getStatusBgColor(status), borderRadius: BorderRadius.circular(20)),
-                  child: Text(_translateStatus(status), style: TextStyle(color: _getStatusTextColor(status), fontSize: 13, fontWeight: FontWeight.w600)),
-                ),
-                const SizedBox(height: 12),
-
-                // Название проблемы (Title)
                 Text(title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
+                const SizedBox(height: 8),
+                Text(categoryName, style: const TextStyle(fontSize: 16, color: AppColors.primaryMint, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 24),
-
-                // Описание
-                const Text('Описание', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.location_on_outlined, color: AppColors.primaryMint, size: 24),
+                    const SizedBox(width: 12),
+                    Expanded(child: Text(location, style: const TextStyle(fontSize: 15, color: AppColors.darkBackground, fontWeight: FontWeight.w500))),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: SizedBox(
+                    height: 180,
+                    width: double.infinity,
+                    child: _isMapLoading
+                        ? Container(color: Colors.grey.shade100, child: const Center(child: CircularProgressIndicator(color: AppColors.primaryMint)))
+                        : FlutterMap(
+                      options: MapOptions(
+                        initialCenter: _locationCoords,
+                        initialZoom: 16.0,
+                        interactionOptions: const InteractionOptions(flags: InteractiveFlag.none),
+                      ),
+                      children: [
+                        TileLayer(
+                          urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+                          subdomains: const ['a', 'b', 'c', 'd'],
+                          userAgentPackageName: 'kz.cityservice.app',
+                        ),
+                        MarkerLayer(
+                          markers: [
+                            Marker(point: _locationCoords, width: 40, height: 40, child: const Icon(Icons.location_on, size: 40, color: Colors.redAccent)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                if (fullImageUrl.isNotEmpty) ...[
+                  const Text('Изображение', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
+                  const SizedBox(height: 12),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: CachedNetworkImage(
+                      imageUrl: fullImageUrl,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      placeholder: (context, url) => Container(height: 200, color: Colors.grey.shade100, child: const Center(child: CircularProgressIndicator(color: AppColors.primaryMint))),
+                      errorWidget: (context, url, error) => Container(height: 200, color: Colors.grey.shade100, child: const Center(child: Icon(Icons.broken_image, color: Colors.grey, size: 40))),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                ],
+                const Text('Описание проблемы', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
                 const SizedBox(height: 8),
                 Text(description, style: const TextStyle(fontSize: 15, color: Color(0xFF64748B), height: 1.4)),
                 const SizedBox(height: 24),
                 const Divider(color: Color(0xFFF1F5F9), thickness: 1.5),
-                const SizedBox(height: 16),
-
-                // Детали заявки
-                const Text('Детали заявки', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
-                const SizedBox(height: 16),
-                _buildDetailRow('От', 'Монитор Байболды А.'), // Статика
-                _buildDetailRow('Кому', 'ИП CleanUralskCar'), // Статика
-                _buildDetailRow('Категория', categoryName),
-                _buildDetailRow('Взято на работу', 'Нет'), // Статика
-                _buildDetailRow('Дата принятия', createdAt),
-                _buildDetailRow('Срок', deadline),
-                _buildDetailRow('Срочность', urgency),
-
-                const SizedBox(height: 24),
-                const Divider(color: Color(0xFFF1F5F9), thickness: 1.5),
-                const SizedBox(height: 16),
-
-                // Местоположение
-                const Text('Местоположение', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
-                const SizedBox(height: 16),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(12)),
-                      child: const Icon(Icons.location_on_outlined, color: AppColors.darkBackground, size: 28),
+                const SizedBox(height: 20),
+                _buildDetailRow('Срочность', urgency, isHighlight: urgency == 'Критичная'),
+                _buildDetailRow('Заявка от', 'Айсана Байболатова'),
+                _buildDetailRow('Номер', '+7 (702) 234-56-78'),
+                _buildDetailRow('Статус', 'В ожидании', isStatus: true),
+                _buildDetailRow('Исполнитель', 'ИП CleanUralskCar'),
+                _buildDetailRow('Ответственное лицо', 'Ерлан Қасымов'),
+                _buildDetailRow('Номер', '+7 (701) 890-12-34'),
+                const SizedBox(height: 32),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Открытие WhatsApp...')));
+                    },
+                    icon: const Icon(Icons.chat_bubble_outline, color: Colors.white),
+                    label: const Text('Связаться через WhatsApp', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF25D366),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      elevation: 0,
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Text(location, style: const TextStyle(fontSize: 15, color: AppColors.darkBackground, fontWeight: FontWeight.w500)),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 24),
-                const Divider(color: Color(0xFFF1F5F9), thickness: 1.5),
-                const SizedBox(height: 16),
-
-                // Прикрепленные фото
-                const Text('Фотографии', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
-                const SizedBox(height: 16),
-
-                fullImageUrl.isNotEmpty
-                    ? ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: CachedNetworkImage(
-                    imageUrl: fullImageUrl,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                    placeholder: (context, url) => Container(height: 200, color: const Color(0xFFF1F5F9), child: const Center(child: CircularProgressIndicator(color: AppColors.primaryMint))),
-                    errorWidget: (context, url, error) => Container(height: 200, color: const Color(0xFFF1F5F9), child: const Center(child: Icon(Icons.broken_image, color: Colors.grey, size: 40))),
                   ),
-                )
-                    : Container(
-                  width: double.infinity, height: 100,
-                  decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(12)),
-                  child: const Center(child: Text('Фото не прикреплено', style: TextStyle(color: Colors.grey))),
                 ),
-
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: _showCancellationInitialSheet,
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      side: const BorderSide(color: Colors.redAccent, width: 1.5),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: const Text('Отменить заявку', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.redAccent)),
+                  ),
+                ),
                 const SizedBox(height: 40),
               ],
             ),
@@ -333,14 +502,33 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     );
   }
 
-  Widget _buildDetailRow(String title, String value) {
+  Widget _buildDetailRow(String title, String value, {bool isHighlight = false, bool isStatus = false}) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12.0),
+      padding: const EdgeInsets.only(bottom: 16.0),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(flex: 2, child: Text(title, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 15, fontWeight: FontWeight.w500))),
-          Expanded(flex: 3, child: Text(value, style: const TextStyle(color: AppColors.darkBackground, fontSize: 15, fontWeight: FontWeight.w600))),
+          Expanded(flex: 2, child: Text(title, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 14, fontWeight: FontWeight.w500))),
+          Expanded(
+            flex: 3,
+            child: isStatus
+                ? Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(8)),
+                child: Text(value, style: TextStyle(color: Colors.orange.shade800, fontSize: 13, fontWeight: FontWeight.w600)),
+              ),
+            )
+                : Text(
+                value,
+                style: TextStyle(
+                    color: isHighlight ? Colors.redAccent : AppColors.darkBackground,
+                    fontSize: 15,
+                    fontWeight: isHighlight ? FontWeight.bold : FontWeight.w600
+                )
+            ),
+          ),
         ],
       ),
     );

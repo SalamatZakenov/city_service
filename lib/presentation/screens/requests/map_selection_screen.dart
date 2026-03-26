@@ -53,7 +53,6 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
       return;
     }
 
-    // Если всё ок, берем координаты
     final position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
     setState(() {
       _currentCenter = LatLng(position.latitude, position.longitude);
@@ -73,12 +72,12 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
           'format': 'json',
           'lat': position.latitude,
           'lon': position.longitude,
-          'zoom': 18, // Максимальная детализация (до здания)
+          'zoom': 18,
           'addressdetails': 1,
-          'accept-language': 'ru', // Просим вернуть адрес на русском языке!
+          'accept-language': 'ru',
         },
         options: Options(
-          headers: {'User-Agent': 'kz.cityservice.app'}, // Представляемся серверу
+          headers: {'User-Agent': 'kz.cityservice.app'},
         ),
       );
 
@@ -87,7 +86,6 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
         final address = data['address'];
 
         if (address != null) {
-          // Пытаемся вытащить улицу и номер дома
           final road = address['road'] ?? address['pedestrian'] ?? address['path'] ?? '';
           final houseNumber = address['house_number'] ?? '';
           final suburb = address['suburb'] ?? address['neighbourhood'] ?? '';
@@ -125,7 +123,6 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
         iconTheme: const IconThemeData(color: AppColors.darkBackground),
         title: const Text('Укажите место', style: TextStyle(color: AppColors.darkBackground, fontWeight: FontWeight.bold)),
         actions: [
-          // Кнопка возврата к моей локации
           IconButton(
             icon: const Icon(Icons.my_location, color: AppColors.primaryMint),
             onPressed: () => _determinePosition(),
@@ -136,7 +133,6 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
           ? const Center(child: CircularProgressIndicator(color: AppColors.primaryMint))
           : Stack(
         children: [
-          // САМА КАРТА
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
@@ -152,7 +148,6 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
                 }
               },
               onMapEvent: (event) {
-                // Когда отпустили палец, переводим координаты в адрес
                 if (event is MapEventMoveEnd) {
                   setState(() => _isDragging = false);
                   _updateAddress(_currentCenter);
@@ -168,7 +163,7 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
             ],
           ),
 
-          // МАРКЕР ПО ЦЕНТРУ ЭКРАНА (как в Яндекс Такси)
+          // МАРКЕР ПО ЦЕНТРУ ЭКРАНА
           Center(
             child: Padding(
               padding: const EdgeInsets.only(bottom: 40.0), // Приподнимаем, чтобы острие было ровно в центре
@@ -213,7 +208,6 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
                         onPressed: _isDragging || _currentAddressText == 'Поиск...'
                             ? null
                             : () {
-                          // Возвращаем выбранный адрес на прошлый экран!
                           Navigator.pop(context, _currentAddressText);
                         },
                         style: ElevatedButton.styleFrom(

@@ -402,8 +402,8 @@ class ExpandableRequestCard extends StatefulWidget {
 
   const ExpandableRequestCard({
     super.key,
-    required this.rawId, // ПОЛНЫЙ ID
-    required this.number, // КОРОТКИЙ ID
+    required this.rawId,
+    required this.number,
     required this.statusText,
     required this.statusBgColor,
     required this.statusTextColor,

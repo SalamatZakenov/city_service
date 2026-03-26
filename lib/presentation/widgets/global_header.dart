@@ -47,7 +47,6 @@ class GlobalHeader extends StatelessWidget implements PreferredSizeWidget {
     );
   }
 
-  // Задаем фиксированную высоту для шапки
   @override
   Size get preferredSize => const Size.fromHeight(60);
 }

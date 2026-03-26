@@ -6,7 +6,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../widgets/global_header.dart';
 import '../../../data/api/request_service.dart';
 import 'map_selection_screen.dart';
-import 'request_detail_screen.dart'; // Подключаем экран деталей
+import 'request_detail_screen.dart';
 
 class CreateRequestScreen extends StatefulWidget {
   const CreateRequestScreen({super.key});
@@ -127,11 +127,10 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
     }
   }
 
-  // === ТА САМАЯ ШТОРКА ИЗ СКРИНШОТА ===
   void _showSuccessSheet(String requestId) {
     showModalBottomSheet(
       context: context,
-      isDismissible: false, // Нельзя закрыть просто свайпом
+      isDismissible: false,
       enableDrag: false,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
@@ -157,9 +156,7 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: () {
-                      Navigator.pop(context); // Закрываем шторку
-                      // pushReplacement заменяет экран создания на экран деталей,
-                      // чтобы кнопка "Назад" вела сразу в список заявок!
+                      Navigator.pop(context);
                       Navigator.pushReplacement(
                           context,
                           MaterialPageRoute(builder: (context) => RequestDetailScreen(requestNumber: requestId))

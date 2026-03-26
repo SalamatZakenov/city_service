@@ -35,12 +35,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() => _isLoading = true);
 
-    // Теперь получаем текст ошибки (или null)
     final errorMessage = await _authService.login(email, password);
 
     if (mounted) setState(() => _isLoading = false);
 
-    // Если errorMessage равен null, значит всё прошло идеально!
     if (errorMessage == null) {
       if (mounted) {
         Navigator.pushReplacement(
@@ -49,7 +47,6 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
     } else {
-      // Иначе выводим РЕАЛЬНУЮ причину на экран
       _showError(errorMessage);
     }
   }
@@ -118,7 +115,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 // Кнопка "Войти"
                 SizedBox(
-                  height: 52, // Чуть выше для солидности
+                  height: 52,
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _handleLogin,
                     style: ElevatedButton.styleFrom(
@@ -158,7 +155,7 @@ class _LoginScreenState extends State<LoginScreen> {
       decoration: BoxDecoration(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white70, width: 1.0), // Сделал контур чуть светлее, как на макете
+        border: Border.all(color: Colors.white70, width: 1.0),
       ),
       child: TextField(
         controller: controller,
@@ -171,7 +168,6 @@ class _LoginScreenState extends State<LoginScreen> {
           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
           suffixIcon: isPassword
               ? IconButton(
-            // Используем иконку с перечеркнутым глазиком по умолчанию, как на макете
             icon: Icon(
               _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
               color: Colors.white54,

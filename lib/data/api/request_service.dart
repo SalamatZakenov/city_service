@@ -81,7 +81,6 @@ class RequestService {
       if (response.statusCode == 201 || response.statusCode == 200) {
         debugPrint('✅ Заявка успешно создана!');
 
-        // Пытаемся вытащить ID созданной заявки из ответа сервера
         String newId = '';
         if (response.data is Map) {
           newId = response.data['id']?.toString() ?? response.data['data']?['id']?.toString() ?? '';
