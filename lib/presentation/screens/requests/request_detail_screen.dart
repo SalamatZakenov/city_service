@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:dio/dio.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../data/api/request_service.dart';
+import '../../../data/storage/secure_storage.dart'; // Добавили для чтения роли
 import '../../widgets/global_header.dart';
 
 class RequestDetailScreen extends StatefulWidget {
@@ -20,19 +21,30 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
   final RequestService _requestService = RequestService();
 
   bool _isLoading = true;
+  bool _isChangingStatus = false; // Загрузка для кнопки принятия
   Map<String, dynamic>? _requestData;
   List<dynamic> _categories = [];
+  String _userRole = 'user'; // По умолчанию обычный юзер
 
   LatLng _locationCoords = const LatLng(43.238949, 76.889709);
   bool _isMapLoading = true;
 
-  // === СТАТИЧНЫЙ СПИСОК ПРИЧИН ОТМЕНЫ ===
   final List<String> _cancellationReasons = [
     'Ошибочная заявка',
     'Заявка не актуальна',
     'Неправильные данные',
     'Другая причина'
   ];
+
+  String _mapReasonToSlug(String uiReason) {
+    switch (uiReason) {
+      case 'Ошибочная заявка': return 'wrong_request';
+      case 'Заявка не актуальна': return 'not_relevant'; // Тот самый, который ты нашел!
+      case 'Неправильные данные': return 'bad_data';
+      case 'Другая причина': return 'other';
+      default: return 'other';
+    }
+  }
 
   @override
   void initState() {
@@ -42,6 +54,9 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
 
   Future<void> _fetchRequestDetails() async {
     try {
+      // 1. Узнаем, кто открыл экран (Подрядчик или Монитор)
+      final role = await SecureStorage.getRole();
+
       _categories = await _requestService.getCategories();
       final allRequests = await _requestService.getRequests();
 
@@ -52,9 +67,13 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
 
       if (mounted) {
         setState(() {
+          _userRole = role ?? 'user';
           _requestData = request;
           _isLoading = false;
         });
+
+        debugPrint('=== ДАННЫЕ ЗАЯВКИ ===');
+        debugPrint(request.toString());
 
         if (request != null && request['location'] != null) {
           _getCoordsFromAddress(request['location']);
@@ -62,6 +81,38 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
       }
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // === МЕТОД ДЛЯ ПОДРЯДЧИКА: ВЗЯТЬ В РАБОТУ ===
+  Future<void> _takeIntoExecution() async {
+    setState(() => _isChangingStatus = true);
+
+    // Отправляем запрос на сервер (статус in_progress)
+    final error = await _requestService.updateRequestStatus(widget.requestNumber, 'in_progress');
+
+    if (mounted) {
+      setState(() => _isChangingStatus = false);
+
+      if (error == null) {
+        // Успех! Меняем статус локально, чтобы UI обновился
+        setState(() {
+          _requestData!['status'] = 'in_progress';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('✅ Заявка взята в работу!'), backgroundColor: AppColors.primaryMint)
+        );
+      } else {
+        // Ошибка (например, бэкенд еще не сделал этот метод)
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(error), backgroundColor: Colors.redAccent)
+        );
+
+        // ВРЕМЕННЫЙ ХАК: Пока бэкенд не готов, давай все равно менять статус визуально для теста
+        setState(() {
+          _requestData!['status'] = 'in_progress';
+        });
+      }
     }
   }
 
@@ -91,9 +142,59 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     }
   }
 
-  // === ПЕРВЫЙ BOTTOM SHEET: "ПРИЧИНА ОТМЕНЫ" ===
+  // Вспомогательные методы
+  String _getCategoryName(dynamic categoryId) {
+    if (categoryId == null) return 'Без категории';
+    try {
+      final cat = _categories.firstWhere((c) => c['id'].toString() == categoryId.toString());
+      return cat['name'];
+    } catch (e) {
+      return 'Без категории';
+    }
+  }
+
+  String _translateStatus(String? statusEn) {
+    switch (statusEn?.toLowerCase()) {
+      case 'new': return 'Новая';
+      case 'in_progress': return 'В работе';
+      case 'done': return 'Исполнено';
+      case 'cancelled': return 'Отменена';
+      default: return 'Новая';
+    }
+  }
+
+  Color _getStatusBgColor(String? statusEn) {
+    switch (statusEn?.toLowerCase()) {
+      case 'new': return AppColors.statusNewBg;
+      case 'in_progress': return AppColors.statusInProgressBg;
+      case 'done': return AppColors.statusDoneBg;
+      case 'cancelled': return Colors.red.shade100;
+      default: return AppColors.statusNewBg;
+    }
+  }
+
+  Color _getStatusTextColor(String? statusEn) {
+    switch (statusEn?.toLowerCase()) {
+      case 'new': return AppColors.statusNewText;
+      case 'in_progress': return AppColors.statusInProgressText;
+      case 'done': return AppColors.statusDoneText;
+      case 'cancelled': return Colors.red.shade800;
+      default: return AppColors.statusNewText;
+    }
+  }
+
+  String _translateUrgency(String? urgencyEn) {
+    switch (urgencyEn?.toLowerCase()) {
+      case 'low': return 'Низкая';
+      case 'medium': return 'Средняя';
+      case 'critical': return 'Критичная';
+      default: return 'Средняя';
+    }
+  }
+
   void _showCancellationInitialSheet() {
     String? localSelectedReason;
+    bool isCancelling = false; // Состояние загрузки (крутилка на кнопке)
 
     showModalBottomSheet(
       context: context,
@@ -111,90 +212,75 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Заголовок
-                    const Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text('Причина отмены', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
-                    ),
+                    const Align(alignment: Alignment.centerLeft, child: Text('Причина отмены', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.darkBackground))),
                     const SizedBox(height: 16),
-
                     GestureDetector(
-                      onTap: () async {
+                      onTap: isCancelling ? null : () async {
                         final result = await _showReasonSelectionSheet(currentSelection: localSelectedReason);
-
-                        if (result != null) {
-                          setModalState(() {
-                            localSelectedReason = result;
-                          });
-                        }
+                        if (result != null) setModalState(() => localSelectedReason = result);
                       },
                       behavior: HitTestBehavior.opaque,
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                        decoration: BoxDecoration(
-                          color: isReasonSelected ? const Color(0xFFF1F5F9) : Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey.shade300),
-                        ),
+                        decoration: BoxDecoration(color: isReasonSelected ? const Color(0xFFF1F5F9) : Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade300)),
                         child: Row(
                           children: [
-                            Icon(
-                                isReasonSelected ? Icons.assignment_outlined : Icons.document_scanner_outlined,
-                                color: isReasonSelected ? AppColors.darkBackground : Colors.grey.shade600,
-                                size: 22
-                            ),
+                            Icon(isReasonSelected ? Icons.assignment_outlined : Icons.document_scanner_outlined, color: isReasonSelected ? AppColors.darkBackground : Colors.grey.shade600, size: 22),
                             const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                localSelectedReason ?? 'Выберите причину',
-                                style: TextStyle(
-                                    fontSize: 15,
-                                    color: isReasonSelected ? AppColors.darkBackground : Colors.grey.shade600,
-                                    fontWeight: isReasonSelected ? FontWeight.w600 : FontWeight.w500
-                                ),
-                              ),
-                            ),
-                            // Стрелочка
+                            Expanded(child: Text(localSelectedReason ?? 'Выберите причину', style: TextStyle(fontSize: 15, color: isReasonSelected ? AppColors.darkBackground : Colors.grey.shade600, fontWeight: isReasonSelected ? FontWeight.w600 : FontWeight.w500))),
                             Icon(Icons.keyboard_arrow_right, color: Colors.grey.shade500, size: 22),
                           ],
                         ),
                       ),
                     ),
                     const SizedBox(height: 32),
-
-                    // === КНОПКИ ВНИЗУ ===
                     Row(
                       children: [
-                        // Кнопка Назад
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => Navigator.pop(context),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              side: BorderSide(color: Colors.grey.shade300, width: 1.5),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                            child: const Text('Назад', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey)),
-                          ),
-                        ),
+                        Expanded(child: OutlinedButton(onPressed: isCancelling ? null : () => Navigator.pop(context), style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), side: BorderSide(color: Colors.grey.shade300, width: 1.5), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Назад', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey)))),
                         const SizedBox(width: 12),
+
+                        // === КНОПКА ОТМЕНЫ (ОЖИВЛЕННАЯ) ===
                         Expanded(
                           child: ElevatedButton(
-                            onPressed: () {
-                              if (isReasonSelected) {
-                                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Заявка отменена: $localSelectedReason')));
-                                Navigator.pop(context);
-                              } else {
-                                Navigator.pop(context);
+                            onPressed: (isReasonSelected && !isCancelling)
+                                ? () async {
+                              // 1. Показываем загрузку на кнопке
+                              setModalState(() => isCancelling = true);
+
+                              // 2. Переводим русский текст в английский slug и отправляем
+                              final reasonSlug = _mapReasonToSlug(localSelectedReason!);
+                              final error = await _requestService.cancelRequest(widget.requestNumber, reasonSlug);
+
+                              if (mounted) {
+                                setModalState(() => isCancelling = false);
+
+                                if (error == null) {
+                                  // 3. УСПЕХ: меняем статус локально и закрываем шторку
+                                  setState(() {
+                                    _requestData!['status'] = 'cancelled';
+                                  });
+                                  Navigator.pop(context); // Закрываем шторку
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('✅ Заявка успешно отменена'), backgroundColor: AppColors.primaryMint)
+                                  );
+                                } else {
+                                  // 4. ОШИБКА: показываем красную плашку
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text(error), backgroundColor: Colors.redAccent)
+                                  );
+                                }
                               }
-                            },
+                            }
+                                : (isCancelling ? () {} : () => Navigator.pop(context)),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: isReasonSelected ? Colors.redAccent : const Color(0xFFE2E8F0),
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              elevation: 0,
+                                backgroundColor: isReasonSelected ? Colors.redAccent : const Color(0xFFE2E8F0),
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                elevation: 0
                             ),
-                            child: const Text('Отменить', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                            child: isCancelling
+                                ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                                : const Text('Отменить', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
                           ),
                         ),
                       ],
@@ -209,78 +295,37 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     );
   }
 
-  // === ВТОРОЙ BOTTOM SHEET: "ВЫБОР ПРИЧИНЫ" ===
   Future<String?> _showReasonSelectionSheet({required String? currentSelection}) async {
     return await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: Colors.white,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      context: context, backgroundColor: Colors.white, isScrollControlled: true, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (context) {
         String? tempSelection = currentSelection;
-
         return StatefulBuilder(
           builder: (context, setModalState) {
             return SafeArea(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 24.0),
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Заголовок
                     const Text('Причина отмены', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
                     const SizedBox(height: 24),
-
                     Flexible(
                       child: ListView.builder(
-                        shrinkWrap: true,
-                        physics: const BouncingScrollPhysics(),
-                        itemCount: _cancellationReasons.length,
+                        shrinkWrap: true, physics: const BouncingScrollPhysics(), itemCount: _cancellationReasons.length,
                         itemBuilder: (context, index) {
                           final reason = _cancellationReasons[index];
                           final bool isSelected = tempSelection == reason;
-
                           return GestureDetector(
-                            onTap: () {
-                              setModalState(() {
-                                tempSelection = reason;
-                              });
-                            },
+                            onTap: () => setModalState(() => tempSelection = reason),
                             behavior: HitTestBehavior.opaque,
                             child: Padding(
                               padding: const EdgeInsets.symmetric(vertical: 16.0),
                               child: Row(
                                 children: [
-                                  // Иконка
-                                  const Icon(Icons.document_scanner_outlined, color: Colors.grey, size: 22),
-                                  const SizedBox(width: 12),
-                                  // Текст причины
-                                  Expanded(
-                                    child: Text(
-                                        reason,
-                                        style: TextStyle(
-                                            fontSize: 15,
-                                            color: isSelected ? AppColors.darkBackground : Colors.grey.shade700,
-                                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500
-                                        )
-                                    ),
-                                  ),
-                                  // Чекбокс
-                                  SizedBox(
-                                    height: 20, width: 20,
-                                    child: Checkbox(
-                                      value: isSelected,
-                                      onChanged: (val) {
-                                        setModalState(() {
-                                          tempSelection = reason;
-                                        });
-                                      },
-                                      activeColor: AppColors.primaryMint,
-                                      shape: const CircleBorder(),
-                                      side: BorderSide(color: Colors.grey.shade400, width: 1.5),
-                                    ),
-                                  ),
+                                  const Icon(Icons.document_scanner_outlined, color: Colors.grey, size: 22), const SizedBox(width: 12),
+                                  Expanded(child: Text(reason, style: TextStyle(fontSize: 15, color: isSelected ? AppColors.darkBackground : Colors.grey.shade700, fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500))),
+                                  SizedBox(height: 20, width: 20, child: Checkbox(value: isSelected, onChanged: (val) => setModalState(() => tempSelection = reason), activeColor: AppColors.primaryMint, shape: const CircleBorder(), side: BorderSide(color: Colors.grey.shade400, width: 1.5))),
                                 ],
                               ),
                             ),
@@ -289,26 +334,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                       ),
                     ),
                     const SizedBox(height: 32),
-
-                    // === КНОПКА ВНИЗУ ===
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: tempSelection == null
-                            ? null
-                            : () {
-                          Navigator.pop(context, tempSelection);
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primaryMint,
-                          disabledBackgroundColor: const Color(0xFFE2E8F0),
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          elevation: 0,
-                        ),
-                        child: const Text('Выбрать', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
-                      ),
-                    ),
+                    SizedBox(width: double.infinity, child: ElevatedButton(onPressed: tempSelection == null ? null : () { Navigator.pop(context, tempSelection); }, style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryMint, disabledBackgroundColor: const Color(0xFFE2E8F0), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), elevation: 0), child: const Text('Выбрать', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)))),
                   ],
                 ),
               ),
@@ -317,26 +343,6 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
         );
       },
     );
-  }
-
-  // Вспомогательные методы
-  String _getCategoryName(dynamic categoryId) {
-    if (categoryId == null) return 'Без категории';
-    try {
-      final cat = _categories.firstWhere((c) => c['id'].toString() == categoryId.toString());
-      return cat['name'];
-    } catch (e) {
-      return 'Без категории';
-    }
-  }
-
-  String _translateUrgency(String? urgencyEn) {
-    switch (urgencyEn?.toLowerCase()) {
-      case 'low': return 'Низкая';
-      case 'medium': return 'Средняя';
-      case 'critical': return 'Критичная';
-      default: return 'Средняя';
-    }
   }
 
   @override
@@ -354,15 +360,28 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
 
   Widget _buildContent() {
     final displayId = widget.requestNumber.length > 8 ? widget.requestNumber.substring(0, 8).toUpperCase() : widget.requestNumber.toUpperCase();
+    final status = _requestData!['status'] ?? 'new';
     final title = _requestData!['title'] ?? 'Без названия';
     final description = _requestData!['description'] ?? 'Описание отсутствует';
-    final categoryName = _getCategoryName(_requestData!['category_id']);
+    final categoryName = _requestData!['category']?['name'] ?? _getCategoryName(_requestData!['category_id']);
     final location = _requestData!['location'] ?? 'Адрес не указан';
     final urgency = _translateUrgency(_requestData!['urgency']);
     final String baseUrl = 'https://city-service-production.up.railway.app';
     String rawPhotoUrl = _requestData!['photo_url'] ?? _requestData!['photo'] ?? '';
-    if (rawPhotoUrl.isNotEmpty && !rawPhotoUrl.startsWith('/')) rawPhotoUrl = '/$rawPhotoUrl';
-    final String fullImageUrl = rawPhotoUrl.isNotEmpty ? '$baseUrl$rawPhotoUrl' : '';
+
+    String fullImageUrl = '';
+    if (rawPhotoUrl.isNotEmpty) {
+      if (rawPhotoUrl.startsWith('http://') || rawPhotoUrl.startsWith('https://')) {
+        // Бэкенд уже отдал полную ссылку
+        fullImageUrl = rawPhotoUrl;
+      } else {
+        // Бэкенд отдал только путь (/uploads/...), приклеиваем домен
+        if (!rawPhotoUrl.startsWith('/')) {
+          rawPhotoUrl = '/$rawPhotoUrl';
+        }
+        fullImageUrl = '$baseUrl$rawPhotoUrl';
+      }
+    }
 
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
@@ -374,14 +393,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
             child: Row(
               children: [
-                GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
-                    child: const Icon(Icons.arrow_back_ios_new, color: AppColors.darkBackground, size: 20),
-                  ),
-                ),
+                GestureDetector(onTap: () => Navigator.pop(context), child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)), child: const Icon(Icons.arrow_back_ios_new, color: AppColors.darkBackground, size: 20))),
                 const SizedBox(width: 16),
                 Text('Заявка №$displayId', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
               ],
@@ -409,27 +421,14 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(16),
                   child: SizedBox(
-                    height: 180,
-                    width: double.infinity,
+                    height: 180, width: double.infinity,
                     child: _isMapLoading
                         ? Container(color: Colors.grey.shade100, child: const Center(child: CircularProgressIndicator(color: AppColors.primaryMint)))
                         : FlutterMap(
-                      options: MapOptions(
-                        initialCenter: _locationCoords,
-                        initialZoom: 16.0,
-                        interactionOptions: const InteractionOptions(flags: InteractiveFlag.none),
-                      ),
+                      options: MapOptions(initialCenter: _locationCoords, initialZoom: 16.0, interactionOptions: const InteractionOptions(flags: InteractiveFlag.none)),
                       children: [
-                        TileLayer(
-                          urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-                          subdomains: const ['a', 'b', 'c', 'd'],
-                          userAgentPackageName: 'kz.cityservice.app',
-                        ),
-                        MarkerLayer(
-                          markers: [
-                            Marker(point: _locationCoords, width: 40, height: 40, child: const Icon(Icons.location_on, size: 40, color: Colors.redAccent)),
-                          ],
-                        ),
+                        TileLayer(urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', subdomains: const ['a', 'b', 'c', 'd'], userAgentPackageName: 'kz.cityservice.app'),
+                        MarkerLayer(markers: [Marker(point: _locationCoords, width: 40, height: 40, child: const Icon(Icons.location_on, size: 40, color: Colors.redAccent))]),
                       ],
                     ),
                   ),
@@ -440,13 +439,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                   const SizedBox(height: 12),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(16),
-                    child: CachedNetworkImage(
-                      imageUrl: fullImageUrl,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                      placeholder: (context, url) => Container(height: 200, color: Colors.grey.shade100, child: const Center(child: CircularProgressIndicator(color: AppColors.primaryMint))),
-                      errorWidget: (context, url, error) => Container(height: 200, color: Colors.grey.shade100, child: const Center(child: Icon(Icons.broken_image, color: Colors.grey, size: 40))),
-                    ),
+                    child: CachedNetworkImage(imageUrl: fullImageUrl, width: double.infinity, fit: BoxFit.cover, placeholder: (context, url) => Container(height: 200, color: Colors.grey.shade100, child: const Center(child: CircularProgressIndicator(color: AppColors.primaryMint))), errorWidget: (context, url, error) => Container(height: 200, color: Colors.grey.shade100, child: const Center(child: Icon(Icons.broken_image, color: Colors.grey, size: 40)))),
                   ),
                   const SizedBox(height: 24),
                 ],
@@ -456,43 +449,60 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                 const SizedBox(height: 24),
                 const Divider(color: Color(0xFFF1F5F9), thickness: 1.5),
                 const SizedBox(height: 20),
+
+                // === ДЕТАЛИ И СТАТУС ===
                 _buildDetailRow('Срочность', urgency, isHighlight: urgency == 'Критичная'),
                 _buildDetailRow('Заявка от', 'Айсана Байболатова'),
                 _buildDetailRow('Номер', '+7 (702) 234-56-78'),
-                _buildDetailRow('Статус', 'В ожидании', isStatus: true),
+                _buildDetailRow('Статус', _translateStatus(status), isStatus: true, statusBgColor: _getStatusBgColor(status), statusTextColor: _getStatusTextColor(status)),
                 _buildDetailRow('Исполнитель', 'ИП CleanUralskCar'),
                 _buildDetailRow('Ответственное лицо', 'Ерлан Қасымов'),
                 _buildDetailRow('Номер', '+7 (701) 890-12-34'),
+
                 const SizedBox(height: 32),
+
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Открытие WhatsApp...')));
-                    },
+                    onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Открытие WhatsApp...'))),
                     icon: const Icon(Icons.chat_bubble_outline, color: Colors.white),
                     label: const Text('Связаться через WhatsApp', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF25D366),
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      elevation: 0,
-                    ),
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF25D366), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), elevation: 0),
                   ),
                 ),
                 const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: _showCancellationInitialSheet,
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      side: const BorderSide(color: Colors.redAccent, width: 1.5),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+
+                // === УМНАЯ КНОПКА (ЗАВИСИТ ОТ РОЛИ) ===
+                if (_userRole == 'contractor') ...[
+                  // Если Подрядчик и статус "Новая" -> Показываем ВЗЯТЬ НА ИСПОЛНЕНИЕ
+                  if (status == 'new')
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _isChangingStatus ? null : _takeIntoExecution,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primaryMint,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          elevation: 0,
+                        ),
+                        child: _isChangingStatus
+                            ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                            : const Text('Взять на исполнение', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                      ),
                     ),
-                    child: const Text('Отменить заявку', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.redAccent)),
+                ] else ...[
+                  // Если обычный Пользователь (Монитор) -> Показываем ОТМЕНУ
+                  if (status != 'cancelled')
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton(
+                      onPressed: _showCancellationInitialSheet,
+                      style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), side: const BorderSide(color: Colors.redAccent, width: 1.5), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                      child: const Text('Отменить заявку', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.redAccent)),
+                    ),
                   ),
-                ),
+                ],
                 const SizedBox(height: 40),
               ],
             ),
@@ -502,7 +512,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     );
   }
 
-  Widget _buildDetailRow(String title, String value, {bool isHighlight = false, bool isStatus = false}) {
+  Widget _buildDetailRow(String title, String value, {bool isHighlight = false, bool isStatus = false, Color? statusBgColor, Color? statusTextColor}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16.0),
       child: Row(
@@ -516,18 +526,11 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
               alignment: Alignment.centerLeft,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(8)),
-                child: Text(value, style: TextStyle(color: Colors.orange.shade800, fontSize: 13, fontWeight: FontWeight.w600)),
+                decoration: BoxDecoration(color: statusBgColor ?? Colors.orange.shade100, borderRadius: BorderRadius.circular(8)),
+                child: Text(value, style: TextStyle(color: statusTextColor ?? Colors.orange.shade800, fontSize: 13, fontWeight: FontWeight.w600)),
               ),
             )
-                : Text(
-                value,
-                style: TextStyle(
-                    color: isHighlight ? Colors.redAccent : AppColors.darkBackground,
-                    fontSize: 15,
-                    fontWeight: isHighlight ? FontWeight.bold : FontWeight.w600
-                )
-            ),
+                : Text(value, style: TextStyle(color: isHighlight ? Colors.redAccent : AppColors.darkBackground, fontSize: 15, fontWeight: isHighlight ? FontWeight.bold : FontWeight.w600)),
           ),
         ],
       ),

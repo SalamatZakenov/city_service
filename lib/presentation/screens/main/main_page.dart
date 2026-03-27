@@ -3,6 +3,7 @@ import '../../../core/theme/app_colors.dart';
 import '../requests/requests_screen.dart';
 import '../../widgets/global_header.dart';
 import '../settings/settings_screen.dart';
+import '../../../data/storage/secure_storage.dart';
 
 class MainPage extends StatefulWidget {
   const MainPage({super.key});
@@ -13,6 +14,23 @@ class MainPage extends StatefulWidget {
 
 class _MainPageState extends State<MainPage> {
   int _currentIndex = 0;
+  String _userRole = 'user';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserRole(); // Проверяем роль при запуске
+  }
+
+  // Загружаем роль из защищенного хранилища
+  Future<void> _loadUserRole() async {
+    final role = await SecureStorage.getRole();
+    if (mounted && role != null) {
+      setState(() {
+        _userRole = role;
+      });
+    }
+  }
 
   // Список экранов для каждой вкладки
   final List<Widget> _screens = [
@@ -51,11 +69,11 @@ class _MainPageState extends State<MainPage> {
           unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12),
           type: BottomNavigationBarType.fixed,
           elevation: 0,
-          items: const [
+          items: [
             BottomNavigationBarItem(
               icon: Icon(Icons.assignment_outlined),
               activeIcon: Icon(Icons.assignment),
-              label: 'Заявки',
+              label: _userRole == 'contractor' ? 'Задачи' : 'Заявки',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.person_outline),

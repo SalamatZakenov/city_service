@@ -28,14 +28,26 @@ class AuthService {
       debugPrint('Тело ответа: ${response.data}');
 
       if (response.statusCode == 200) {
-        final token = response.data['token'] ?? response.data['data']?['token'];
+        // Достаем основной объект data
+        final responseData = response.data['data'];
+        final token = responseData?['token'];
+
+        // Достаем роль из вложенного объекта user
+        final role = responseData?['user']?['role'];
 
         if (token != null) {
           await SecureStorage.saveToken(token);
+
+          // Сохраняем роль в память (напр. "contractor")
+          if (role != null) {
+            await SecureStorage.saveRole(role);
+            debugPrint('✅ Роль $role сохранена в SecureStorage');
+          }
+
           debugPrint('✅ Токен успешно сохранен!');
           return null;
         } else {
-          return 'Сервер ответил 200, но токена в ответе нет: ${response.data}';
+          return 'Сервер ответил 200, но токена в ответе нет';
         }
       }
       return 'Неожиданный статус: ${response.statusCode}';

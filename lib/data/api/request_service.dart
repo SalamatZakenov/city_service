@@ -128,4 +128,64 @@ class RequestService {
       return [];
     }
   }
+
+  // === НОВЫЙ МЕТОД: Изменение статуса заявки ===
+  Future<String?> updateRequestStatus(String id, String newStatus) async {
+    try {
+      final token = await SecureStorage.getToken();
+      if (token == null) return 'Необходима авторизация';
+
+      // Отправляем PATCH запрос на обновление статуса
+      final response = await _dio.patch(
+        '/requests/$id',
+        data: {'status': newStatus},
+        options: Options(headers: {'Authorization': 'Bearer $token'}),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 204) {
+        return null; // Успешно
+      }
+      return 'Неожиданный ответ сервера: ${response.statusCode}';
+    } on DioException catch (e) {
+      debugPrint('Ошибка смены статуса: ${e.response?.data}');
+      return 'Ошибка сервера: ${e.response?.statusCode}';
+    } catch (e) {
+      return 'Внутренняя ошибка: $e';
+    }
+  }
+
+// === ОБНОВЛЕННЫЙ МЕТОД: Отмена заявки (как в Swagger) ===
+  Future<String?> cancelRequest(String id, String reasonSlug) async {
+    try {
+      final token = await SecureStorage.getToken();
+      if (token == null) return 'Необходима авторизация';
+
+      debugPrint('=== ОТПРАВЛЯЕМ ЗАПРОС НА ОТМЕНУ ===');
+      debugPrint('ID заявки: $id');
+      debugPrint('Reason: $reasonSlug');
+
+      final response = await _dio.post(
+        '/requests/$id/cancel',
+        data: {
+          'reason': reasonSlug, // Отправляем английский ключ
+          'comment': 'Отменено через мобильное приложение' // Отправляем обязательный коммент
+        },
+        options: Options(headers: {'Authorization': 'Bearer $token'}),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201 || response.statusCode == 204) {
+        return null; // Успех
+      }
+      return 'Неожиданный ответ: ${response.statusCode}';
+
+    } on DioException catch (e) {
+      String errorMessage = 'Ошибка сервера: ${e.response?.statusCode ?? "Неизвестно"}';
+      if (e.response?.data != null && e.response?.data is Map) {
+        errorMessage = e.response?.data['error'] ?? errorMessage;
+      }
+      return errorMessage;
+    } catch (e) {
+      return 'Внутренняя ошибка: $e';
+    }
+  }
 }

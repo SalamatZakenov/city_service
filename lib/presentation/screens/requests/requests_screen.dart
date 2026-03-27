@@ -160,6 +160,7 @@ class _RequestsScreenState extends State<RequestsScreen> {
       case 'new': return AppColors.statusNewBg;
       case 'in_progress': return AppColors.statusInProgressBg;
       case 'done': return AppColors.statusDoneBg;
+      case 'cancelled': return Colors.red.shade100;
       default: return Colors.grey.shade200;
     }
   }
@@ -169,6 +170,7 @@ class _RequestsScreenState extends State<RequestsScreen> {
       case 'new': return AppColors.statusNewText;
       case 'in_progress': return AppColors.statusInProgressText;
       case 'done': return AppColors.statusDoneText;
+      case 'cancelled': return Colors.red.shade800;
       default: return Colors.grey.shade700;
     }
   }
@@ -178,6 +180,7 @@ class _RequestsScreenState extends State<RequestsScreen> {
       case 'new': return 'новая';
       case 'in_progress': return 'в работе';
       case 'done': return 'исполнено';
+      case 'cancelled': return 'Отменена';
       default: return status;
     }
   }
@@ -297,7 +300,11 @@ class _RequestsScreenState extends State<RequestsScreen> {
                   if (_selectedCategoryFilter != null) {
                     final selectedCatObj = _serverCategories.firstWhere((c) => c['name'] == _selectedCategoryFilter, orElse: () => null);
                     if (selectedCatObj != null) {
-                      requests = requests.where((r) => r['category_id'].toString() == selectedCatObj['id'].toString()).toList();
+                      requests = requests.where((r) {
+                        // === УЧИТЫВАЕМ НОВУЮ СТРУКТУРУ БЭКЕНДА ДЛЯ ФИЛЬТРА ===
+                        final catId = r['category']?['id'] ?? r['category_id'];
+                        return catId.toString() == selectedCatObj['id'].toString();
+                      }).toList();
                     }
                   }
 
@@ -327,12 +334,16 @@ class _RequestsScreenState extends State<RequestsScreen> {
                       itemBuilder: (context, index) {
                         final req = requests[index];
                         final status = req['status'] ?? 'new';
-                        final categoryName = _getCategoryNameById(req['category_id']);
-                        final location = req['location'] ?? 'Адрес не указан';
 
-                        // ВОТ ЗДЕСЬ ИСПРАВЛЕНИЕ: Мы сохраняем полный ID
+                        // === ДОСТАЕМ ИМЯ КАТЕГОРИИ ИЗ НОВОГО JSON ===
+                        final categoryName = req['category']?['name'] ?? _getCategoryNameById(req['category_id']);
+
+                        final location = req['location'] ?? 'Адрес не указан';
                         final idString = req['id']?.toString() ?? '???';
-                        final shortId = idString.length > 8 ? idString.substring(0, 8).toUpperCase() : idString.toUpperCase();
+
+                        // Достаем request_number с сервера, если он есть (например: 16U260327)
+                        final serverRequestNumber = req['request_number']?.toString();
+                        final shortId = serverRequestNumber ?? (idString.length > 8 ? idString.substring(0, 8).toUpperCase() : idString.toUpperCase());
 
                         final urgency = req['urgency'] != null ? _translateUrgency(req['urgency']) : 'Неизвестно';
                         final rawCreatedAt = req['created_at'] ?? req['createdAt'];
@@ -340,8 +351,8 @@ class _RequestsScreenState extends State<RequestsScreen> {
                         final imageUrl = req['photo_url'] ?? req['photo'] ?? req['imageUrl'];
 
                         return ExpandableRequestCard(
-                          rawId: idString, // Передаем полный ID для поиска на сервере
-                          number: shortId, // Передаем короткий ID для красоты на экране
+                          rawId: idString,
+                          number: shortId,
                           statusText: _translateStatus(status),
                           statusBgColor: _getStatusBgColor(status),
                           statusTextColor: _getStatusTextColor(status),
@@ -388,8 +399,8 @@ class _RequestsScreenState extends State<RequestsScreen> {
 }
 
 class ExpandableRequestCard extends StatefulWidget {
-  final String rawId; // ПОЛНЫЙ ID
-  final String number; // КОРОТКИЙ ID
+  final String rawId;
+  final String number;
   final String statusText;
   final Color statusBgColor;
   final Color statusTextColor;
@@ -425,10 +436,21 @@ class _ExpandableRequestCardState extends State<ExpandableRequestCard> {
 
   @override
   Widget build(BuildContext context) {
+    // === ТА САМАЯ УМНАЯ ЛОГИКА ССЫЛОК ИЗ ЭКРАНА ДЕТАЛЕЙ ===
     final String baseUrl = 'https://city-service-production.up.railway.app';
-    String cleanPath = widget.imageUrlPath ?? '';
-    if (cleanPath.isNotEmpty && !cleanPath.startsWith('/')) cleanPath = '/$cleanPath';
-    final String fullImageUrl = cleanPath.isNotEmpty ? '$baseUrl$cleanPath' : '';
+    String rawPhotoUrl = widget.imageUrlPath ?? '';
+
+    String fullImageUrl = '';
+    if (rawPhotoUrl.isNotEmpty) {
+      if (rawPhotoUrl.startsWith('http://') || rawPhotoUrl.startsWith('https://')) {
+        fullImageUrl = rawPhotoUrl;
+      } else {
+        if (!rawPhotoUrl.startsWith('/')) {
+          rawPhotoUrl = '/$rawPhotoUrl';
+        }
+        fullImageUrl = '$baseUrl$rawPhotoUrl';
+      }
+    }
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -517,7 +539,6 @@ class _ExpandableRequestCardState extends State<ExpandableRequestCard> {
                     width: double.infinity,
                     child: ElevatedButton(
                         onPressed: () {
-                          // ВОТ ЗДЕСЬ ПЕРЕДАЕМ widget.rawId ВМЕСТО widget.number!
                           Navigator.push(context, MaterialPageRoute(builder: (context) => RequestDetailScreen(requestNumber: widget.rawId)));
                         },
                         style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryMint.withValues(alpha: 0.12), foregroundColor: AppColors.primaryMint, elevation: 0, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
