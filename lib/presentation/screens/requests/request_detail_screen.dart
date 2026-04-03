@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -5,7 +7,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:dio/dio.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../data/api/request_service.dart';
-import '../../../data/storage/secure_storage.dart'; // Добавили для чтения роли
+import '../../../data/storage/secure_storage.dart';
 import '../../widgets/global_header.dart';
 
 class RequestDetailScreen extends StatefulWidget {
@@ -39,7 +41,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
   String _mapReasonToSlug(String uiReason) {
     switch (uiReason) {
       case 'Ошибочная заявка': return 'wrong_request';
-      case 'Заявка не актуальна': return 'not_relevant'; // Тот самый, который ты нашел!
+      case 'Заявка не актуальна': return 'not_relevant';
       case 'Неправильные данные': return 'bad_data';
       case 'Другая причина': return 'other';
       default: return 'other';
@@ -54,29 +56,24 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
 
   Future<void> _fetchRequestDetails() async {
     try {
-      // 1. Узнаем, кто открыл экран (Подрядчик или Монитор)
       final role = await SecureStorage.getRole();
 
-      _categories = await _requestService.getCategories();
-      final allRequests = await _requestService.getRequests();
-
-      final request = allRequests.firstWhere(
-            (req) => req['id'].toString() == widget.requestNumber,
-        orElse: () => null,
-      );
+      // Запрашиваем категории и конкретную заявку параллельно
+      final results = await Future.wait([
+        _requestService.getCategories(),
+        _requestService.getRequestById(widget.requestNumber), // Используем наш новый умный метод!
+      ]);
 
       if (mounted) {
         setState(() {
           _userRole = role ?? 'user';
-          _requestData = request;
+          _categories = results[0] as List<dynamic>;
+          _requestData = results[1] as Map<String, dynamic>?;
           _isLoading = false;
         });
 
-        debugPrint('=== ДАННЫЕ ЗАЯВКИ ===');
-        debugPrint(request.toString());
-
-        if (request != null && request['location'] != null) {
-          _getCoordsFromAddress(request['location']);
+        if (_requestData != null && _requestData!['location'] != null) {
+          _getCoordsFromAddress(_requestData!['location']);
         }
       }
     } catch (e) {
@@ -295,6 +292,139 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     );
   }
 
+  // === ШТОРКА ЗАВЕРШЕНИЯ ЗАЯВКИ (ДЛЯ ПОДРЯДЧИКА) ===
+  void _showCompletionSheet() {
+    int localRating = 5;
+    File? localPhoto;
+    final TextEditingController commentController = TextEditingController();
+    bool isSubmitting = false;
+
+    // === ИСПРАВЛЕННЫЙ НОМЕР И ПОДСЧЕТ ДНЕЙ ===
+    final String reqNum = _requestData?['request_number']?.toString() ?? widget.requestNumber.substring(0, 8).toUpperCase();
+
+    final String dateString = _requestData!['taken_at'] ?? _requestData!['created_at'];
+    final DateTime startDate = DateTime.parse(dateString);
+    // Считаем разницу. Если прошло 0 дней, ставим 1 (сервер часто требует минимум 1)
+    int daysInWork = DateTime.now().difference(startDate).inDays;
+    if (daysInWork <= 0) daysInWork = 1;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 24.0, right: 24.0, top: 24.0),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Завершение заявки', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                        IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(12)),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            const Text('Номер заявки', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                            const SizedBox(height: 4),
+                            Text('№$reqNum', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), // ТУТ ТЕПЕРЬ ПРАВИЛЬНЫЙ НОМЕР
+                          ]),
+                          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                            const Text('В работе', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                            const SizedBox(height: 4),
+                            Text('$daysInWork дн.', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.primaryMint)),
+                          ]),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    const Text('Оценка работы Монитора', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(5, (index) => IconButton(
+                        icon: Icon(index < localRating ? Icons.star_rounded : Icons.star_outline_rounded, color: Colors.amber, size: 40),
+                        onPressed: () => setModalState(() => localRating = index + 1),
+                      )),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('Фотография результата', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    GestureDetector(
+                      onTap: () async {
+                        final ImagePicker picker = ImagePicker();
+                        // ТЕСТ: Если на симуляторе - используй gallery. Если на реальном iPhone - camera.
+                        final XFile? image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+                        if (image != null) setModalState(() => localPhoto = File(image.path));
+                      },
+                      child: Container(
+                        height: 120, width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(12),
+                          image: localPhoto != null ? DecorationImage(image: FileImage(localPhoto!), fit: BoxFit.cover) : null,
+                        ),
+                        child: localPhoto == null ? const Icon(Icons.camera_alt_outlined, color: Colors.grey, size: 32) : null,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    TextField(
+                      controller: commentController,
+                      decoration: const InputDecoration(hintText: 'Комментарий...', filled: true, fillColor: Color(0xFFF1F5F9), border: InputBorder.none),
+                    ),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: (localPhoto == null || isSubmitting) ? null : () async {
+                          setModalState(() => isSubmitting = true);
+
+                          // ОТПРАВЛЯЕМ ДАННЫЕ (включая daysInWork)
+                          final error = await _requestService.completeRequest(
+                              widget.requestNumber,
+                              commentController.text.isEmpty ? 'Выполнено' : commentController.text,
+                              localRating,
+                              daysInWork, // <--- ТЕПЕРЬ ОШИБКИ 400 НЕ БУДЕТ
+                              localPhoto!
+                          );
+
+                          if (mounted) {
+                            setModalState(() => isSubmitting = false);
+                            if (error == null) {
+                              setState(() => _requestData!['status'] = 'done');
+                              Navigator.pop(context);
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ Успешно завершено!')));
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error), backgroundColor: Colors.redAccent));
+                            }
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryMint, padding: const EdgeInsets.symmetric(vertical: 16)),
+                        child: isSubmitting ? const CircularProgressIndicator(color: Colors.white) : const Text('Завершить заявку'),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<String?> _showReasonSelectionSheet({required String? currentSelection}) async {
     return await showModalBottomSheet<String>(
       context: context, backgroundColor: Colors.white, isScrollControlled: true, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
@@ -349,17 +479,20 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: const GlobalHeader(),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.primaryMint))
-          : _requestData == null
-          ? const Center(child: Text('Заявка не найдена', style: TextStyle(color: Colors.grey, fontSize: 16)))
-          : _buildContent(),
+
+      body: SafeArea(
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator(color: AppColors.primaryMint))
+            : _requestData == null
+            ? const Center(child: Text('Заявка не найдена', style: TextStyle(color: Colors.grey, fontSize: 16)))
+            : _buildContent(),
+      ),
     );
   }
 
   Widget _buildContent() {
-    final displayId = widget.requestNumber.length > 8 ? widget.requestNumber.substring(0, 8).toUpperCase() : widget.requestNumber.toUpperCase();
+    final displayId = _requestData?['request_number']?.toString() ??
+        (widget.requestNumber.length > 8 ? widget.requestNumber.substring(0, 8).toUpperCase() : widget.requestNumber.toUpperCase());
     final status = _requestData!['status'] ?? 'new';
     final title = _requestData!['title'] ?? 'Без названия';
     final description = _requestData!['description'] ?? 'Описание отсутствует';
@@ -479,16 +612,29 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: _isChangingStatus ? null : _takeIntoExecution,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primaryMint,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          elevation: 0,
-                        ),
-                        child: _isChangingStatus
-                            ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                            : const Text('Взять на исполнение', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                        onPressed: () async {
+                          // ... (твой старый код взятия на исполнение _requestService.updateRequestStatus)
+                          final error = await _requestService.updateRequestStatus(widget.requestNumber, 'in_progress');
+                          if (error == null) {
+                            setState(() => _requestData!['status'] = 'in_progress');
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Заявка взята в работу!'), backgroundColor: AppColors.primaryMint));
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error), backgroundColor: Colors.redAccent));
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryMint, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), elevation: 0),
+                        child: const Text('Взять на исполнение', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                      ),
+                    ),
+
+                  // === НОВОЕ: Если статус "В работе" -> Показываем ИЗМЕНИТЬ СТАТУС ===
+                  if (status == 'in_progress')
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _showCompletionSheet, // Вызываем шторку
+                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryMint, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), elevation: 0),
+                        child: const Text('Изменить статус', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
                       ),
                     ),
                 ] else ...[

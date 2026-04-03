@@ -4,6 +4,7 @@ import '../../../core/theme/app_colors.dart';
 import 'create_request_screen.dart';
 import 'request_detail_screen.dart';
 import '../../../data/api/request_service.dart';
+import '../../../data/storage/secure_storage.dart';
 
 class RequestsScreen extends StatefulWidget {
   const RequestsScreen({super.key});
@@ -14,11 +15,12 @@ class RequestsScreen extends StatefulWidget {
 
 class _RequestsScreenState extends State<RequestsScreen> {
   final RequestService _requestService = RequestService();
-  late Future<List<dynamic>> _requestsFuture;
+  Future<List<dynamic>>? _requestsFuture;
 
   String? _selectedCategoryFilter;
   String? _selectedStatusFilter;
   DateTime? _selectedDateFilter;
+  String _userRole = '';
 
   List<dynamic> _serverCategories = [];
   bool _isLoadingCategories = true;
@@ -28,11 +30,14 @@ class _RequestsScreenState extends State<RequestsScreen> {
   @override
   void initState() {
     super.initState();
+    _requestsFuture = _requestService.getRequests();
     _loadAllData();
   }
 
-  void _loadAllData() {
+  Future<void> _loadAllData() async {
+    final role = await SecureStorage.getRole();
     setState(() {
+      _userRole = role ?? '';
       _requestsFuture = _requestService.getRequests();
     });
     _loadCategories();
@@ -217,11 +222,12 @@ class _RequestsScreenState extends State<RequestsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    String centerDateText = 'Сегодня';
+    // === ИЗМЕНЕНО: По умолчанию пишем "Все" вместо "Сегодня" ===
+    String centerDateText = 'Все';
     if (_selectedDateFilter != null) {
       final now = DateTime.now();
       if (_selectedDateFilter!.year == now.year && _selectedDateFilter!.month == now.month && _selectedDateFilter!.day == now.day) {
-        centerDateText = 'Сегодня';
+        centerDateText = 'Сегодня'; // Если юзер вручную выбрал сегодняшний день
       } else {
         centerDateText = "${_selectedDateFilter!.day.toString().padLeft(2, '0')}.${_selectedDateFilter!.month.toString().padLeft(2, '0')}.${_selectedDateFilter!.year}";
       }
@@ -249,12 +255,14 @@ class _RequestsScreenState extends State<RequestsScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text('Заявки', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
-                ElevatedButton.icon(
-                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const CreateRequestScreen())).then((_) => _loadAllData()),
-                  icon: const Icon(Icons.add, size: 20),
-                  label: const Text('Создать заявку'),
-                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryMint, foregroundColor: Colors.white, elevation: 0, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                ),
+                // === ИЗМЕНЕНО: Показываем кнопку создания ТОЛЬКО если это не подрядчик ===
+                if (_userRole != 'contractor')
+                  ElevatedButton.icon(
+                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const CreateRequestScreen())).then((_) => _loadAllData()),
+                    icon: const Icon(Icons.add, size: 20),
+                    label: const Text('Создать заявку'),
+                    style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryMint, foregroundColor: Colors.white, elevation: 0, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+                  ),
               ],
             ),
             const SizedBox(height: 20),
@@ -301,7 +309,6 @@ class _RequestsScreenState extends State<RequestsScreen> {
                     final selectedCatObj = _serverCategories.firstWhere((c) => c['name'] == _selectedCategoryFilter, orElse: () => null);
                     if (selectedCatObj != null) {
                       requests = requests.where((r) {
-                        // === УЧИТЫВАЕМ НОВУЮ СТРУКТУРУ БЭКЕНДА ДЛЯ ФИЛЬТРА ===
                         final catId = r['category']?['id'] ?? r['category_id'];
                         return catId.toString() == selectedCatObj['id'].toString();
                       }).toList();
@@ -335,13 +342,11 @@ class _RequestsScreenState extends State<RequestsScreen> {
                         final req = requests[index];
                         final status = req['status'] ?? 'new';
 
-                        // === ДОСТАЕМ ИМЯ КАТЕГОРИИ ИЗ НОВОГО JSON ===
                         final categoryName = req['category']?['name'] ?? _getCategoryNameById(req['category_id']);
 
                         final location = req['location'] ?? 'Адрес не указан';
                         final idString = req['id']?.toString() ?? '???';
 
-                        // Достаем request_number с сервера, если он есть (например: 16U260327)
                         final serverRequestNumber = req['request_number']?.toString();
                         final shortId = serverRequestNumber ?? (idString.length > 8 ? idString.substring(0, 8).toUpperCase() : idString.toUpperCase());
 
@@ -362,6 +367,9 @@ class _RequestsScreenState extends State<RequestsScreen> {
                           createdAtDate: _formatDateString(rawCreatedAt),
                           deadlineDate: _formatDateString(rawDeadline),
                           imageUrlPath: imageUrl,
+                          onReturnFromDetail: () {
+                            _loadAllData();
+                          },
                         );
                       },
                     ),
@@ -410,6 +418,7 @@ class ExpandableRequestCard extends StatefulWidget {
   final String createdAtDate;
   final String deadlineDate;
   final String? imageUrlPath;
+  final VoidCallback onReturnFromDetail;
 
   const ExpandableRequestCard({
     super.key,
@@ -424,6 +433,7 @@ class ExpandableRequestCard extends StatefulWidget {
     required this.createdAtDate,
     required this.deadlineDate,
     this.imageUrlPath,
+    required this.onReturnFromDetail,
   });
 
   @override
@@ -436,7 +446,6 @@ class _ExpandableRequestCardState extends State<ExpandableRequestCard> {
 
   @override
   Widget build(BuildContext context) {
-    // === ТА САМАЯ УМНАЯ ЛОГИКА ССЫЛОК ИЗ ЭКРАНА ДЕТАЛЕЙ ===
     final String baseUrl = 'https://city-service-production.up.railway.app';
     String rawPhotoUrl = widget.imageUrlPath ?? '';
 
@@ -538,8 +547,9 @@ class _ExpandableRequestCardState extends State<ExpandableRequestCard> {
                 SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => RequestDetailScreen(requestNumber: widget.rawId)));
+                        onPressed: () async {
+                          await Navigator.push(context, MaterialPageRoute(builder: (context) => RequestDetailScreen(requestNumber: widget.rawId)));
+                          widget.onReturnFromDetail();
                         },
                         style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryMint.withValues(alpha: 0.12), foregroundColor: AppColors.primaryMint, elevation: 0, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
                         child: const Text('Посмотреть', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600))

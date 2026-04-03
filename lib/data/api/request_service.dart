@@ -13,27 +13,55 @@ class RequestService {
     },
   ));
 
-  // 1. Получить список всех заявок
+// === ОБНОВЛЕННЫЙ МЕТОД: Загрузка всех заявок (сборка из двух мест для Подрядчика) ===
   Future<List<dynamic>> getRequests() async {
     try {
       final token = await SecureStorage.getToken();
+      final role = await SecureStorage.getRole(); // Узнаем роль
+
       if (token == null) return [];
 
-      final response = await _dio.get(
-        '/requests',
-        options: Options(headers: {'Authorization': 'Bearer $token'}),
-      );
+      if (role == 'contractor') {
+        debugPrint('=== ЗАГРУЖАЕМ ЗАЯВКИ ПОДРЯДЧИКА (Новые + Мои) ===');
 
-      if (response.statusCode == 200) {
-        if (response.data is List) {
-          return response.data;
-        } else if (response.data is Map && response.data.containsKey('data')) {
-          return response.data['data'];
+        // 1. Делаем сразу ДВА запроса параллельно для скорости
+        final results = await Future.wait([
+          _dio.get('/contractor/requests', options: Options(headers: {'Authorization': 'Bearer $token'})).catchError((e) => Response(requestOptions: RequestOptions(path: ''), statusCode: 500)),
+          _dio.get('/contractor/requests/my', options: Options(headers: {'Authorization': 'Bearer $token'})).catchError((e) => Response(requestOptions: RequestOptions(path: ''), statusCode: 500)),
+        ]);
+
+        List<dynamic> allRequests = [];
+
+        // 2. Добавляем "Новые" заявки
+        if (results[0].statusCode == 200) {
+          final data = results[0].data['data'] ?? results[0].data;
+          if (data is List) allRequests.addAll(data);
         }
-        return response.data;
+
+        // 3. Добавляем "Мои" заявки (в работе и исполненные)
+        if (results[1].statusCode == 200) {
+          final data = results[1].data['data'] ?? results[1].data;
+          if (data is List) allRequests.addAll(data);
+        }
+
+        return allRequests;
+
+      } else {
+        // === ЛОГИКА ДЛЯ МОНИТОРА (без изменений) ===
+        debugPrint('=== ЗАГРУЖАЕМ ЗАЯВКИ МОНИТОРА ===');
+        final response = await _dio.get(
+          '/requests',
+          options: Options(headers: {'Authorization': 'Bearer $token'}),
+        );
+
+        if (response.statusCode == 200) {
+          final data = response.data['data'] ?? response.data;
+          if (data is List) return data;
+        }
+        return [];
       }
-      return [];
     } catch (e) {
+      debugPrint('Ошибка загрузки заявок: $e');
       return [];
     }
   }
@@ -129,26 +157,44 @@ class RequestService {
     }
   }
 
-  // === НОВЫЙ МЕТОД: Изменение статуса заявки ===
+// === ОБНОВЛЕННЫЙ МЕТОД: Изменение статуса заявки ===
   Future<String?> updateRequestStatus(String id, String newStatus) async {
     try {
       final token = await SecureStorage.getToken();
+      final role = await SecureStorage.getRole(); // Проверяем роль
       if (token == null) return 'Необходима авторизация';
 
-      // Отправляем PATCH запрос на обновление статуса
-      final response = await _dio.patch(
-        '/requests/$id',
-        data: {'status': newStatus},
+      // === ИСПОЛЬЗУЕМ НОВЫЙ АДРЕС /take ДЛЯ ПОДРЯДЧИКА ===
+      final String endpoint = (role == 'contractor')
+          ? '/contractor/requests/$id/take'  // <--- ВОТ ОНО!
+          : '/requests/$id';
+
+      debugPrint('=== МЕНЯЕМ СТАТУС ЗАЯВКИ ===');
+      debugPrint('Эндпоинт: $endpoint');
+
+      // Для роутов вроде /take и /cancel почти всегда используется POST
+      final response = await _dio.post(
+        endpoint,
+        data: {
+          'status': newStatus,
+          'comment': 'Взято в работу через мобильное приложение'
+        },
         options: Options(headers: {'Authorization': 'Bearer $token'}),
       );
 
-      if (response.statusCode == 200 || response.statusCode == 204) {
+      if (response.statusCode == 200 || response.statusCode == 201 || response.statusCode == 204) {
         return null; // Успешно
       }
       return 'Неожиданный ответ сервера: ${response.statusCode}';
+
     } on DioException catch (e) {
-      debugPrint('Ошибка смены статуса: ${e.response?.data}');
-      return 'Ошибка сервера: ${e.response?.statusCode}';
+      debugPrint('Ошибка смены статуса: ${e.response?.statusCode} - ${e.response?.data}');
+      String errorMessage = 'Ошибка сервера: ${e.response?.statusCode}';
+
+      if (e.response?.data != null && e.response?.data is Map && e.response?.data['error'] != null) {
+        errorMessage = e.response?.data['error'];
+      }
+      return errorMessage;
     } catch (e) {
       return 'Внутренняя ошибка: $e';
     }
@@ -182,6 +228,72 @@ class RequestService {
       String errorMessage = 'Ошибка сервера: ${e.response?.statusCode ?? "Неизвестно"}';
       if (e.response?.data != null && e.response?.data is Map) {
         errorMessage = e.response?.data['error'] ?? errorMessage;
+      }
+      return errorMessage;
+    } catch (e) {
+      return 'Внутренняя ошибка: $e';
+    }
+  }
+
+  // === НОВЫЙ МЕТОД: Получить детали одной заявки ===
+  Future<Map<String, dynamic>?> getRequestById(String id) async {
+    try {
+      final token = await SecureStorage.getToken();
+      final role = await SecureStorage.getRole();
+
+      final String endpoint = (role == 'contractor')
+          ? '/contractor/requests/$id'
+          : '/requests/$id';
+
+      final response = await _dio.get(
+        endpoint,
+        options: Options(headers: {'Authorization': 'Bearer $token'}),
+      );
+
+      if (response.statusCode == 200) {
+        return response.data['data'] ?? response.data;
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Ошибка загрузки деталей заявки: $e');
+      return null;
+    }
+  }
+
+// === ОБНОВЛЕННЫЙ МЕТОД: Завершение заявки (теперь с днями!) ===
+  Future<String?> completeRequest(String id, String comment, int rating, int daysSpent, File photo) async { // <--- Добавили int daysSpent
+    try {
+      final token = await SecureStorage.getToken();
+      if (token == null) return 'Необходима авторизация';
+
+      String fileName = photo.path.split('/').last;
+
+      FormData formData = FormData.fromMap({
+        'comment': comment,
+        'rating': rating,
+        'days_spent': daysSpent,
+        'photo': await MultipartFile.fromFile(photo.path, filename: fileName),
+      });
+
+      final response = await _dio.post(
+        '/contractor/requests/$id/complete',
+        data: formData,
+        options: Options(
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Content-Type': 'multipart/form-data',
+            }
+        ),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201 || response.statusCode == 204) {
+        return null;
+      }
+      return 'Неожиданный ответ сервера: ${response.statusCode}';
+    } on DioException catch (e) {
+      String errorMessage = 'Ошибка сервера: ${e.response?.statusCode}';
+      if (e.response?.data != null && e.response?.data is Map && e.response?.data['error'] != null) {
+        errorMessage = e.response?.data['error'];
       }
       return errorMessage;
     } catch (e) {
