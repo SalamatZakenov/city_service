@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:geocoding/geocoding.dart';
 import '../../../core/theme/app_colors.dart';
 import 'package:dio/dio.dart';
 
@@ -35,7 +34,7 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
 
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      setState(() => _isLoadingLocation = false);
+      if (mounted) setState(() => _isLoadingLocation = false);
       return;
     }
 
@@ -43,24 +42,42 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
-        setState(() => _isLoadingLocation = false);
+        if (mounted) setState(() => _isLoadingLocation = false);
         return;
       }
     }
 
     if (permission == LocationPermission.deniedForever) {
-      setState(() => _isLoadingLocation = false);
+      if (mounted) setState(() => _isLoadingLocation = false);
       return;
     }
 
     final position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-    setState(() {
-      _currentCenter = LatLng(position.latitude, position.longitude);
-      _isLoadingLocation = false;
-    });
+    final newLocation = LatLng(position.latitude, position.longitude);
 
+    if (mounted) {
+      setState(() {
+        _currentCenter = newLocation;
+        _isLoadingLocation = false;
+      });
 
-    _updateAddress(_currentCenter);
+      // === ИСПРАВЛЕНИЕ БАГА ===
+      // Принудительно двигаем камеру карты на новые координаты пользователя
+      _mapController.move(newLocation, 16.0);
+    }
+
+    _updateAddress(newLocation);
+  }
+
+  // === НОВЫЕ МЕТОДЫ: Приближение и Отдаление ===
+  void _zoomIn() {
+    final currentZoom = _mapController.camera.zoom;
+    _mapController.move(_mapController.camera.center, currentZoom + 1);
+  }
+
+  void _zoomOut() {
+    final currentZoom = _mapController.camera.zoom;
+    _mapController.move(_mapController.camera.center, currentZoom - 1);
   }
 
   Future<void> _updateAddress(LatLng position) async {
@@ -102,15 +119,19 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
             finalAddress = data['display_name'] ?? 'Неизвестный адрес';
           }
 
-          setState(() {
-            _currentAddressText = finalAddress;
-          });
+          if (mounted) {
+            setState(() {
+              _currentAddressText = finalAddress;
+            });
+          }
         }
       }
     } catch (e) {
-      setState(() {
-        _currentAddressText = 'Ошибка сети';
-      });
+      if (mounted) {
+        setState(() {
+          _currentAddressText = 'Ошибка сети';
+        });
+      }
     }
   }
 
@@ -122,12 +143,6 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
         elevation: 0,
         iconTheme: const IconThemeData(color: AppColors.darkBackground),
         title: const Text('Укажите место', style: TextStyle(color: AppColors.darkBackground, fontWeight: FontWeight.bold)),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.my_location, color: AppColors.primaryMint),
-            onPressed: () => _determinePosition(),
-          ),
-        ],
       ),
       body: _isLoadingLocation
           ? const Center(child: CircularProgressIndicator(color: AppColors.primaryMint))
@@ -137,7 +152,7 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
             mapController: _mapController,
             options: MapOptions(
               initialCenter: _currentCenter,
-              initialZoom: 15.0,
+              initialZoom: 16.0,
               onPositionChanged: (position, hasGesture) {
                 if (hasGesture) {
                   setState(() {
@@ -166,7 +181,7 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
           // МАРКЕР ПО ЦЕНТРУ ЭКРАНА
           Center(
             child: Padding(
-              padding: const EdgeInsets.only(bottom: 40.0), // Приподнимаем, чтобы острие было ровно в центре
+              padding: const EdgeInsets.only(bottom: 40.0),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
                 transform: Matrix4.translationValues(0, _isDragging ? -15 : 0, 0),
@@ -176,6 +191,21 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
                   color: Colors.redAccent,
                 ),
               ),
+            ),
+          ),
+
+          // === КНОПКИ УПРАВЛЕНИЯ КАРТОЙ (+, -, Геолокация) ===
+          Positioned(
+            right: 16,
+            bottom: 220, // Поднимаем над нижней плашкой
+            child: Column(
+              children: [
+                _buildMapControl(Icons.add, _zoomIn),
+                const SizedBox(height: 8),
+                _buildMapControl(Icons.remove, _zoomOut),
+                const SizedBox(height: 16),
+                _buildMapControl(Icons.my_location, _determinePosition, iconColor: AppColors.primaryMint),
+              ],
             ),
           ),
 
@@ -224,6 +254,21 @@ class _MapSelectionScreenState extends State<MapSelectionScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // Виджет для красивых круглых кнопок управления
+  Widget _buildMapControl(IconData icon, VoidCallback onTap, {Color iconColor = AppColors.darkBackground}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 8, offset: const Offset(0, 4))],
+      ),
+      child: IconButton(
+        icon: Icon(icon, color: iconColor),
+        onPressed: onTap,
       ),
     );
   }

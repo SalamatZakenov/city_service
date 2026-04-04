@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:dio/dio.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../data/api/request_service.dart';
 import '../../../data/storage/secure_storage.dart';
@@ -23,10 +24,10 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
   final RequestService _requestService = RequestService();
 
   bool _isLoading = true;
-  bool _isChangingStatus = false; // Загрузка для кнопки принятия
+  bool _isChangingStatus = false;
   Map<String, dynamic>? _requestData;
   List<dynamic> _categories = [];
-  String _userRole = 'user'; // По умолчанию обычный юзер
+  String _userRole = 'user';
 
   LatLng _locationCoords = const LatLng(43.238949, 76.889709);
   bool _isMapLoading = true;
@@ -58,10 +59,9 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     try {
       final role = await SecureStorage.getRole();
 
-      // Запрашиваем категории и конкретную заявку параллельно
       final results = await Future.wait([
         _requestService.getCategories(),
-        _requestService.getRequestById(widget.requestNumber), // Используем наш новый умный метод!
+        _requestService.getRequestById(widget.requestNumber),
       ]);
 
       if (mounted) {
@@ -81,18 +81,119 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     }
   }
 
-  // === МЕТОД ДЛЯ ПОДРЯДЧИКА: ВЗЯТЬ В РАБОТУ ===
+  // === НОВЫЙ МЕТОД: Открытие WhatsApp ===
+  Future<void> _openWhatsApp(String phone) async {
+    // 1. Очищаем номер от пробелов, скобок и плюсов (оставляем только цифры)
+    String cleanedPhone = phone.replaceAll(RegExp(r'[^\d]'), '');
+
+    // 2. Если номер казахстанский/российский и начинается на 8, меняем 8 на 7
+    if (cleanedPhone.startsWith('8') && cleanedPhone.length == 11) {
+      cleanedPhone = '7${cleanedPhone.substring(1)}';
+    }
+
+    final Uri whatsappUrl = Uri.parse('https://wa.me/$cleanedPhone');
+
+    if (await canLaunchUrl(whatsappUrl)) {
+      await launchUrl(whatsappUrl, mode: LaunchMode.externalApplication);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось открыть WhatsApp. Возможно, он не установлен.'), backgroundColor: Colors.redAccent),
+        );
+      }
+    }
+  }
+
+  // === Методы для карт ===
+  Future<void> _openMapApp(String mapType) async {
+    final lat = _locationCoords.latitude;
+    final lon = _locationCoords.longitude;
+    String url = '';
+
+    if (mapType == '2gis') {
+      url = 'https://2gis.kz/geo/$lon,$lat';
+    } else if (mapType == 'yandex') {
+      url = 'https://yandex.ru/maps/?pt=$lon,$lat&z=16&l=map';
+    } else if (mapType == 'google') {
+      url = 'https://www.google.com/maps/search/?api=1&query=$lat,$lon';
+    }
+
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось открыть карту')),
+        );
+      }
+    }
+  }
+
+  void _showMapOptions() {
+    showModalBottomSheet(
+        context: context,
+        backgroundColor: Colors.white,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+        builder: (context) {
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24.0, horizontal: 20.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Открыть в навигаторе', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
+                  const SizedBox(height: 16),
+                  ListTile(
+                    onTap: () { Navigator.pop(context); _openMapApp('2gis'); },
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(color: const Color(0xFFE8F5E9), borderRadius: BorderRadius.circular(8)),
+                      child: const Icon(Icons.map_outlined, color: Colors.green),
+                    ),
+                    title: const Text('2GIS', style: TextStyle(fontWeight: FontWeight.w600)),
+                    trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    onTap: () { Navigator.pop(context); _openMapApp('yandex'); },
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(color: const Color(0xFFFFEBEE), borderRadius: BorderRadius.circular(8)),
+                      child: const Icon(Icons.explore_outlined, color: Colors.red),
+                    ),
+                    title: const Text('Яндекс Карты', style: TextStyle(fontWeight: FontWeight.w600)),
+                    trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    onTap: () { Navigator.pop(context); _openMapApp('google'); },
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(color: const Color(0xFFE3F2FD), borderRadius: BorderRadius.circular(8)),
+                      child: const Icon(Icons.location_on_outlined, color: Colors.blue),
+                    ),
+                    title: const Text('Google Maps', style: TextStyle(fontWeight: FontWeight.w600)),
+                    trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+    );
+  }
+
   Future<void> _takeIntoExecution() async {
     setState(() => _isChangingStatus = true);
 
-    // Отправляем запрос на сервер (статус in_progress)
     final error = await _requestService.updateRequestStatus(widget.requestNumber, 'in_progress');
 
     if (mounted) {
       setState(() => _isChangingStatus = false);
 
       if (error == null) {
-        // Успех! Меняем статус локально, чтобы UI обновился
         setState(() {
           _requestData!['status'] = 'in_progress';
         });
@@ -100,15 +201,9 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
             const SnackBar(content: Text('✅ Заявка взята в работу!'), backgroundColor: AppColors.primaryMint)
         );
       } else {
-        // Ошибка (например, бэкенд еще не сделал этот метод)
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(error), backgroundColor: Colors.redAccent)
         );
-
-        // ВРЕМЕННЫЙ ХАК: Пока бэкенд не готов, давай все равно менять статус визуально для теста
-        setState(() {
-          _requestData!['status'] = 'in_progress';
-        });
       }
     }
   }
@@ -139,7 +234,6 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     }
   }
 
-  // Вспомогательные методы
   String _getCategoryName(dynamic categoryId) {
     if (categoryId == null) return 'Без категории';
     try {
@@ -191,7 +285,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
 
   void _showCancellationInitialSheet() {
     String? localSelectedReason;
-    bool isCancelling = false; // Состояние загрузки (крутилка на кнопке)
+    bool isCancelling = false;
 
     showModalBottomSheet(
       context: context,
@@ -236,15 +330,12 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                         Expanded(child: OutlinedButton(onPressed: isCancelling ? null : () => Navigator.pop(context), style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), side: BorderSide(color: Colors.grey.shade300, width: 1.5), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Назад', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey)))),
                         const SizedBox(width: 12),
 
-                        // === КНОПКА ОТМЕНЫ (ОЖИВЛЕННАЯ) ===
                         Expanded(
                           child: ElevatedButton(
                             onPressed: (isReasonSelected && !isCancelling)
                                 ? () async {
-                              // 1. Показываем загрузку на кнопке
                               setModalState(() => isCancelling = true);
 
-                              // 2. Переводим русский текст в английский slug и отправляем
                               final reasonSlug = _mapReasonToSlug(localSelectedReason!);
                               final error = await _requestService.cancelRequest(widget.requestNumber, reasonSlug);
 
@@ -252,16 +343,14 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                                 setModalState(() => isCancelling = false);
 
                                 if (error == null) {
-                                  // 3. УСПЕХ: меняем статус локально и закрываем шторку
                                   setState(() {
                                     _requestData!['status'] = 'cancelled';
                                   });
-                                  Navigator.pop(context); // Закрываем шторку
+                                  Navigator.pop(context);
                                   ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(content: Text('✅ Заявка успешно отменена'), backgroundColor: AppColors.primaryMint)
                                   );
                                 } else {
-                                  // 4. ОШИБКА: показываем красную плашку
                                   ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(content: Text(error), backgroundColor: Colors.redAccent)
                                   );
@@ -292,19 +381,16 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     );
   }
 
-  // === ШТОРКА ЗАВЕРШЕНИЯ ЗАЯВКИ (ДЛЯ ПОДРЯДЧИКА) ===
   void _showCompletionSheet() {
     int localRating = 5;
     File? localPhoto;
     final TextEditingController commentController = TextEditingController();
     bool isSubmitting = false;
 
-    // === ИСПРАВЛЕННЫЙ НОМЕР И ПОДСЧЕТ ДНЕЙ ===
     final String reqNum = _requestData?['request_number']?.toString() ?? widget.requestNumber.substring(0, 8).toUpperCase();
 
     final String dateString = _requestData!['taken_at'] ?? _requestData!['created_at'];
     final DateTime startDate = DateTime.parse(dateString);
-    // Считаем разницу. Если прошло 0 дней, ставим 1 (сервер часто требует минимум 1)
     int daysInWork = DateTime.now().difference(startDate).inDays;
     if (daysInWork <= 0) daysInWork = 1;
 
@@ -340,7 +426,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                           Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                             const Text('Номер заявки', style: TextStyle(color: Colors.grey, fontSize: 13)),
                             const SizedBox(height: 4),
-                            Text('№$reqNum', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), // ТУТ ТЕПЕРЬ ПРАВИЛЬНЫЙ НОМЕР
+                            Text('№$reqNum', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                           ]),
                           Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
                             const Text('В работе', style: TextStyle(color: Colors.grey, fontSize: 13)),
@@ -365,7 +451,6 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                     GestureDetector(
                       onTap: () async {
                         final ImagePicker picker = ImagePicker();
-                        // ТЕСТ: Если на симуляторе - используй gallery. Если на реальном iPhone - camera.
                         final XFile? image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
                         if (image != null) setModalState(() => localPhoto = File(image.path));
                       },
@@ -390,12 +475,11 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                         onPressed: (localPhoto == null || isSubmitting) ? null : () async {
                           setModalState(() => isSubmitting = true);
 
-                          // ОТПРАВЛЯЕМ ДАННЫЕ (включая daysInWork)
                           final error = await _requestService.completeRequest(
                               widget.requestNumber,
                               commentController.text.isEmpty ? 'Выполнено' : commentController.text,
                               localRating,
-                              daysInWork, // <--- ТЕПЕРЬ ОШИБКИ 400 НЕ БУДЕТ
+                              daysInWork,
                               localPhoto!
                           );
 
@@ -479,7 +563,6 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-
       body: SafeArea(
         child: _isLoading
             ? const Center(child: CircularProgressIndicator(color: AppColors.primaryMint))
@@ -493,6 +576,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
   Widget _buildContent() {
     final displayId = _requestData?['request_number']?.toString() ??
         (widget.requestNumber.length > 8 ? widget.requestNumber.substring(0, 8).toUpperCase() : widget.requestNumber.toUpperCase());
+
     final status = _requestData!['status'] ?? 'new';
     final title = _requestData!['title'] ?? 'Без названия';
     final description = _requestData!['description'] ?? 'Описание отсутствует';
@@ -505,16 +589,24 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     String fullImageUrl = '';
     if (rawPhotoUrl.isNotEmpty) {
       if (rawPhotoUrl.startsWith('http://') || rawPhotoUrl.startsWith('https://')) {
-        // Бэкенд уже отдал полную ссылку
         fullImageUrl = rawPhotoUrl;
       } else {
-        // Бэкенд отдал только путь (/uploads/...), приклеиваем домен
         if (!rawPhotoUrl.startsWith('/')) {
           rawPhotoUrl = '/$rawPhotoUrl';
         }
         fullImageUrl = '$baseUrl$rawPhotoUrl';
       }
     }
+
+    final monitor = _requestData!['monitor'];
+    final contractor = _requestData!['contractor'];
+
+    final monitorName = monitor?['full_name'] ?? 'Не указано';
+    final monitorPhone = monitor?['phone'] ?? 'Не указан';
+
+    final contractorName = contractor?['company_name'] ?? contractor?['full_name'] ?? 'Не назначен';
+    final contractorResponsible = contractor?['responsible_person'] ?? contractor?['full_name'] ?? 'Не назначено';
+    final contractorPhone = contractor?['company_phone'] ?? contractor?['phone'] ?? 'Не указан';
 
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
@@ -551,31 +643,73 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: SizedBox(
-                    height: 180, width: double.infinity,
-                    child: _isMapLoading
-                        ? Container(color: Colors.grey.shade100, child: const Center(child: CircularProgressIndicator(color: AppColors.primaryMint)))
-                        : FlutterMap(
-                      options: MapOptions(initialCenter: _locationCoords, initialZoom: 16.0, interactionOptions: const InteractionOptions(flags: InteractiveFlag.none)),
-                      children: [
-                        TileLayer(urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', subdomains: const ['a', 'b', 'c', 'd'], userAgentPackageName: 'kz.cityservice.app'),
-                        MarkerLayer(markers: [Marker(point: _locationCoords, width: 40, height: 40, child: const Icon(Icons.location_on, size: 40, color: Colors.redAccent))]),
-                      ],
+
+                Stack(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: SizedBox(
+                        height: 180, width: double.infinity,
+                        child: _isMapLoading
+                            ? Container(color: Colors.grey.shade100, child: const Center(child: CircularProgressIndicator(color: AppColors.primaryMint)))
+                            : FlutterMap(
+                          options: MapOptions(initialCenter: _locationCoords, initialZoom: 16.0, interactionOptions: const InteractionOptions(flags: InteractiveFlag.none)),
+                          children: [
+                            TileLayer(urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', subdomains: const ['a', 'b', 'c', 'd'], userAgentPackageName: 'kz.cityservice.app'),
+                            MarkerLayer(markers: [Marker(point: _locationCoords, width: 40, height: 40, child: const Icon(Icons.location_on, size: 40, color: Colors.redAccent))]),
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
+                    if (!_isMapLoading)
+                      Positioned(
+                        bottom: 12,
+                        right: 12,
+                        child: ElevatedButton.icon(
+                          onPressed: _showMapOptions,
+                          icon: const Icon(Icons.directions, size: 18),
+                          label: const Text('Маршрут'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: AppColors.darkBackground,
+                            elevation: 4,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 24),
+
                 if (fullImageUrl.isNotEmpty) ...[
                   const Text('Изображение', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
                   const SizedBox(height: 12),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: CachedNetworkImage(imageUrl: fullImageUrl, width: double.infinity, fit: BoxFit.cover, placeholder: (context, url) => Container(height: 200, color: Colors.grey.shade100, child: const Center(child: CircularProgressIndicator(color: AppColors.primaryMint))), errorWidget: (context, url, error) => Container(height: 200, color: Colors.grey.shade100, child: const Center(child: Icon(Icons.broken_image, color: Colors.grey, size: 40)))),
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => FullScreenImageViewer(imageUrl: fullImageUrl),
+                        ),
+                      );
+                    },
+                    child: Hero(
+                      tag: fullImageUrl,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: CachedNetworkImage(
+                            imageUrl: fullImageUrl,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                            placeholder: (context, url) => Container(height: 200, color: Colors.grey.shade100, child: const Center(child: CircularProgressIndicator(color: AppColors.primaryMint))),
+                            errorWidget: (context, url, error) => Container(height: 200, color: Colors.grey.shade100, child: const Center(child: Icon(Icons.broken_image, color: Colors.grey, size: 40)))
+                        ),
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 24),
                 ],
+
                 const Text('Описание проблемы', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
                 const SizedBox(height: 8),
                 Text(description, style: const TextStyle(fontSize: 15, color: Color(0xFF64748B), height: 1.4)),
@@ -583,21 +717,38 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                 const Divider(color: Color(0xFFF1F5F9), thickness: 1.5),
                 const SizedBox(height: 20),
 
-                // === ДЕТАЛИ И СТАТУС ===
                 _buildDetailRow('Срочность', urgency, isHighlight: urgency == 'Критичная'),
-                _buildDetailRow('Заявка от', 'Айсана Байболатова'),
-                _buildDetailRow('Номер', '+7 (702) 234-56-78'),
+                _buildDetailRow('Заявка от', monitorName),
+                _buildDetailRow('Номер', monitorPhone),
                 _buildDetailRow('Статус', _translateStatus(status), isStatus: true, statusBgColor: _getStatusBgColor(status), statusTextColor: _getStatusTextColor(status)),
-                _buildDetailRow('Исполнитель', 'ИП CleanUralskCar'),
-                _buildDetailRow('Ответственное лицо', 'Ерлан Қасымов'),
-                _buildDetailRow('Номер', '+7 (701) 890-12-34'),
+                _buildDetailRow('Исполнитель', contractorName),
+
+                if (contractor != null) ...[
+                  _buildDetailRow('Ответственное лицо', contractorResponsible),
+                  _buildDetailRow('Номер', contractorPhone),
+                ],
 
                 const SizedBox(height: 32),
 
+                // === ОБНОВЛЕННАЯ КНОПКА WHATSAPP ===
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
-                    onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Открытие WhatsApp...'))),
+                    onPressed: () {
+                      // Определяем, кому писать:
+                      // Если я Подрядчик - пишу Монитору. Если я Монитор - пишу Подрядчику.
+                      final targetPhone = _userRole == 'contractor' ? monitorPhone : contractorPhone;
+
+                      // Проверяем, есть ли номер
+                      if (targetPhone == 'Не указан' || targetPhone == 'Не назначено' || targetPhone.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Номер телефона пока не указан'), backgroundColor: Colors.orange),
+                        );
+                        return;
+                      }
+
+                      _openWhatsApp(targetPhone);
+                    },
                     icon: const Icon(Icons.chat_bubble_outline, color: Colors.white),
                     label: const Text('Связаться через WhatsApp', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
                     style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF25D366), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), elevation: 0),
@@ -605,15 +756,12 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                 ),
                 const SizedBox(height: 12),
 
-                // === УМНАЯ КНОПКА (ЗАВИСИТ ОТ РОЛИ) ===
                 if (_userRole == 'contractor') ...[
-                  // Если Подрядчик и статус "Новая" -> Показываем ВЗЯТЬ НА ИСПОЛНЕНИЕ
                   if (status == 'new')
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
                         onPressed: () async {
-                          // ... (твой старый код взятия на исполнение _requestService.updateRequestStatus)
                           final error = await _requestService.updateRequestStatus(widget.requestNumber, 'in_progress');
                           if (error == null) {
                             setState(() => _requestData!['status'] = 'in_progress');
@@ -627,27 +775,25 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                       ),
                     ),
 
-                  // === НОВОЕ: Если статус "В работе" -> Показываем ИЗМЕНИТЬ СТАТУС ===
                   if (status == 'in_progress')
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: _showCompletionSheet, // Вызываем шторку
+                        onPressed: _showCompletionSheet,
                         style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryMint, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), elevation: 0),
                         child: const Text('Изменить статус', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
                       ),
                     ),
                 ] else ...[
-                  // Если обычный Пользователь (Монитор) -> Показываем ОТМЕНУ
                   if (status != 'cancelled')
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton(
-                      onPressed: _showCancellationInitialSheet,
-                      style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), side: const BorderSide(color: Colors.redAccent, width: 1.5), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                      child: const Text('Отменить заявку', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.redAccent)),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton(
+                        onPressed: _showCancellationInitialSheet,
+                        style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), side: const BorderSide(color: Colors.redAccent, width: 1.5), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                        child: const Text('Отменить заявку', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.redAccent)),
+                      ),
                     ),
-                  ),
                 ],
                 const SizedBox(height: 40),
               ],
@@ -679,6 +825,40 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                 : Text(value, style: TextStyle(color: isHighlight ? Colors.redAccent : AppColors.darkBackground, fontSize: 15, fontWeight: isHighlight ? FontWeight.bold : FontWeight.w600)),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class FullScreenImageViewer extends StatelessWidget {
+  final String imageUrl;
+
+  const FullScreenImageViewer({super.key, required this.imageUrl});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
+      body: Center(
+        child: InteractiveViewer(
+          panEnabled: true,
+          minScale: 0.5,
+          maxScale: 4.0,
+          child: Hero(
+            tag: imageUrl,
+            child: CachedNetworkImage(
+              imageUrl: imageUrl,
+              fit: BoxFit.contain,
+              placeholder: (context, url) => const CircularProgressIndicator(color: AppColors.primaryMint),
+              errorWidget: (context, url, error) => const Icon(Icons.broken_image, color: Colors.grey, size: 50),
+            ),
+          ),
+        ),
       ),
     );
   }

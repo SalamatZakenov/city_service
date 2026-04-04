@@ -30,7 +30,7 @@ class SettingsScreen extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
-                  'Выход',
+                  'Выйти из аккаунта',
                   style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
@@ -65,7 +65,7 @@ class SettingsScreen extends StatelessWidget {
                         borderRadius: BorderRadius.circular(8),
                       ),
                     ),
-                    child: const Text('Выход', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                    child: const Text('Выйти из аккаунта', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -134,7 +134,7 @@ class SettingsScreen extends StatelessWidget {
           _buildSettingsGroup(
             items: [
               _buildSettingsItem(
-                title: 'Выход',
+                title: 'Выйти из аккаунта',
                 isDestructive: true,
                 onTap: () => _showLogoutDialog(context),
               ),

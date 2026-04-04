@@ -25,7 +25,7 @@ class _RequestsScreenState extends State<RequestsScreen> {
   List<dynamic> _serverCategories = [];
   bool _isLoadingCategories = true;
 
-  final List<String> _statuses = ['Все', 'Новая', 'В работе', 'Исполнено'];
+  final List<String> _statuses = ['Все', 'Новая', 'В работе'];
 
   @override
   void initState() {
@@ -222,12 +222,11 @@ class _RequestsScreenState extends State<RequestsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // === ИЗМЕНЕНО: По умолчанию пишем "Все" вместо "Сегодня" ===
     String centerDateText = 'Все';
     if (_selectedDateFilter != null) {
       final now = DateTime.now();
       if (_selectedDateFilter!.year == now.year && _selectedDateFilter!.month == now.month && _selectedDateFilter!.day == now.day) {
-        centerDateText = 'Сегодня'; // Если юзер вручную выбрал сегодняшний день
+        centerDateText = 'Сегодня';
       } else {
         centerDateText = "${_selectedDateFilter!.day.toString().padLeft(2, '0')}.${_selectedDateFilter!.month.toString().padLeft(2, '0')}.${_selectedDateFilter!.year}";
       }
@@ -255,7 +254,6 @@ class _RequestsScreenState extends State<RequestsScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text('Заявки', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
-                // === ИЗМЕНЕНО: Показываем кнопку создания ТОЛЬКО если это не подрядчик ===
                 if (_userRole != 'contractor')
                   ElevatedButton.icon(
                     onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const CreateRequestScreen())).then((_) => _loadAllData()),
@@ -298,10 +296,15 @@ class _RequestsScreenState extends State<RequestsScreen> {
                   }
                   if (snapshot.hasError) return Center(child: Text('Ошибка: ${snapshot.error}', style: const TextStyle(color: Colors.red)));
 
-                  var requests = snapshot.data ?? [];
+                  var rawRequests = snapshot.data ?? [];
+
+                  var requests = rawRequests.where((r) {
+                    final s = r['status']?.toString().toLowerCase();
+                    return s == 'new' || s == 'in_progress';
+                  }).toList();
 
                   if (_selectedStatusFilter != null) {
-                    final statusEn = _selectedStatusFilter == 'Новая' ? 'new' : _selectedStatusFilter == 'В работе' ? 'in_progress' : 'done';
+                    final statusEn = _selectedStatusFilter == 'Новая' ? 'new' : 'in_progress';
                     requests = requests.where((r) => r['status'] == statusEn).toList();
                   }
 

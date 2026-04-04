@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../requests/requests_screen.dart';
+import '../profile/profile_screen.dart';
 import '../../widgets/global_header.dart';
 import '../settings/settings_screen.dart';
 import '../../../data/storage/secure_storage.dart';
@@ -35,7 +36,7 @@ class _MainPageState extends State<MainPage> {
   // Список экранов для каждой вкладки
   final List<Widget> _screens = [
     const RequestsScreen(),
-    const Center(child: Text('Профиль')),
+    const ProfileScreen(),
     const SettingsScreen(),
   ];
 
