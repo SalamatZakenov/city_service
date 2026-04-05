@@ -5,6 +5,7 @@ import '../profile/profile_screen.dart';
 import '../../widgets/global_header.dart';
 import '../settings/settings_screen.dart';
 import '../../../data/storage/secure_storage.dart';
+import '../admin/admin_dashboard_screen.dart';
 
 class MainPage extends StatefulWidget {
   const MainPage({super.key});
@@ -15,36 +16,54 @@ class MainPage extends StatefulWidget {
 
 class _MainPageState extends State<MainPage> {
   int _currentIndex = 0;
-  String _userRole = 'user';
+  String _userRole = '';
+  bool _isLoadingRole = true; // <--- ДОБАВИЛИ ФЛАГ ЗАГРУЗКИ РОЛИ
 
   @override
   void initState() {
     super.initState();
-    _loadUserRole(); // Проверяем роль при запуске
+    _loadUserRole();
   }
 
-  // Загружаем роль из защищенного хранилища
   Future<void> _loadUserRole() async {
     final role = await SecureStorage.getRole();
-    if (mounted && role != null) {
+    if (mounted) {
       setState(() {
-        _userRole = role;
+        _userRole = role ?? 'user';
+        _isLoadingRole = false; // <--- РОЛЬ ОПРЕДЕЛЕНА
       });
     }
   }
 
-  // Список экранов для каждой вкладки
-  final List<Widget> _screens = [
-    const RequestsScreen(),
+  List<Widget> get _screens => [
+    _userRole == 'admin' ? const AdminDashboardScreen() : const RequestsScreen(),
     const ProfileScreen(),
     const SettingsScreen(),
   ];
 
   @override
   Widget build(BuildContext context) {
+    // Пока не поймем, админ это или нет - показываем загрузку,
+    // чтобы старые экраны не делали запросы (ошибка 403)
+    if (_isLoadingRole) {
+      return const Scaffold(
+        backgroundColor: AppColors.lightBackground,
+        body: Center(child: CircularProgressIndicator(color: AppColors.primaryMint)),
+      );
+    }
+
+    String firstTabLabel = 'Заявки';
+    if (_userRole == 'contractor') {
+      firstTabLabel = 'Задачи';
+    } else if (_userRole == 'admin') {
+      firstTabLabel = 'Дашборд';
+    }
+
     return Scaffold(
       backgroundColor: AppColors.lightBackground,
-      appBar: const GlobalHeader(),
+      appBar: (_userRole == 'admin' && _currentIndex == 0)
+          ? null
+          : const GlobalHeader(),
       body: _screens[_currentIndex],
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
@@ -72,16 +91,16 @@ class _MainPageState extends State<MainPage> {
           elevation: 0,
           items: [
             BottomNavigationBarItem(
-              icon: Icon(Icons.assignment_outlined),
-              activeIcon: Icon(Icons.assignment),
-              label: _userRole == 'contractor' ? 'Задачи' : 'Заявки',
+              icon: const Icon(Icons.assignment_outlined),
+              activeIcon: const Icon(Icons.assignment),
+              label: firstTabLabel,
             ),
-            BottomNavigationBarItem(
+            const BottomNavigationBarItem(
               icon: Icon(Icons.person_outline),
               activeIcon: Icon(Icons.person),
               label: 'Профиль',
             ),
-            BottomNavigationBarItem(
+            const BottomNavigationBarItem(
               icon: Icon(Icons.settings_outlined),
               activeIcon: Icon(Icons.settings),
               label: 'Настройки',

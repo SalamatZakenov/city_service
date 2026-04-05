@@ -3,6 +3,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../data/storage/secure_storage.dart';
 import '../../../data/api/request_service.dart';
 import 'filtered_requests_screen.dart';
+import '../auth/login_screen.dart'; // <--- Добавили импорт экрана логина для выхода
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -22,7 +23,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // Все заявки с сервера
   List<dynamic> _allRequests = [];
 
-  // === НОВОЕ: Переменная для выбранного промежутка "ОТ и ДО" ===
+  // === Переменная для выбранного промежутка "ОТ и ДО" ===
   DateTimeRange? _selectedDateRange;
 
   // ПЕРЕМЕННЫЕ ДЛЯ СТАТИСТИКИ
@@ -41,20 +42,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _loadUserProfile() async {
     try {
       final role = await SecureStorage.getRole();
-      final requests = await _requestService.getRequests();
 
       if (mounted) {
         setState(() {
           _userRole = role ?? 'monitor';
 
-          _userName = _userRole == 'contractor' ? 'ИП Жумадилов' : 'Акбергенов Даулет';
-          _userEmail = _userRole == 'contractor' ? 'ipzhumadilovov@cityservice.com' : 'daulet@cityservice.com';
-
-          _allRequests = requests;
+          if (_userRole == 'contractor') {
+            _userName = 'ИП Жумадилов';
+            _userEmail = 'ipzhumadilovov@cityservice.com';
+          } else if (_userRole == 'admin') {
+            _userName = 'Администратор';
+            _userEmail = 'admin@cityservice.com';
+          } else {
+            _userName = 'Акбергенов Даулет';
+            _userEmail = 'daulet@cityservice.com';
+          }
         });
+      }
 
-        _calculateStats();
+      // === УМНАЯ ЗАГРУЗКА: Админу не нужно скачивать заявки для статистики ===
+      if (_userRole != 'admin') {
+        final requests = await _requestService.getRequests();
+        if (mounted) {
+          setState(() {
+            _allRequests = requests;
+          });
+          _calculateStats();
+        }
+      }
 
+      if (mounted) {
         setState(() {
           _isLoading = false;
         });
@@ -64,7 +81,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-// === ОБНОВЛЕННЫЙ МЕТОД: Правильно выбираем дату в зависимости от статуса ===
   void _calculateStats() {
     int tCount = 0, nCount = 0, ipCount = 0, dCount = 0, cCount = 0;
 
@@ -120,7 +136,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     });
   }
 
-  // === НОВЫЙ МЕТОД: Открываем выбор промежутка "ОТ и ДО" ===
   Future<void> _pickDateRange() async {
     final DateTimeRange? picked = await showDateRangePicker(
       context: context,
@@ -142,24 +157,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
       },
     );
 
-    // Если нажали "Применить" - сохраняем. Если "Отмена" - сбрасываем фильтр.
     if (picked != null) {
       setState(() => _selectedDateRange = picked);
     } else {
       setState(() => _selectedDateRange = null);
     }
 
-    // Мгновенно пересчитываем цифры
     _calculateStats();
   }
 
+  // === ПРАВИЛЬНЫЙ МЕТОД ВЫХОДА ===
   void _logout() async {
+    await SecureStorage.deleteToken();
     await SecureStorage.deleteRole();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Вы вышли из аккаунта'), backgroundColor: AppColors.primaryMint),
-      );
-    }
+    if (!mounted) return;
+
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (context) => const LoginScreen()),
+          (route) => false, // Убирает всю историю экранов, чтобы нельзя было нажать "Назад"
+    );
   }
 
   void _openRequestList(String title, String statusFilter) {
@@ -169,7 +186,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         builder: (context) => FilteredRequestsScreen(
           title: title,
           statusFilter: statusFilter,
-          dateRange: _selectedDateRange, // <--- ТЕПЕРЬ МЫ ПЕРЕДАЕМ ВЫБРАННЫЕ ДАТЫ
+          dateRange: _selectedDateRange,
         ),
       ),
     ).then((_) {
@@ -184,13 +201,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     final isContractor = _userRole == 'contractor';
-    final roleDisplay = isContractor ? 'Подрядчик' : 'Монитор';
+    final isAdmin = _userRole == 'admin'; // <--- ПРОВЕРЯЕМ АДМИНА
+
+    final roleDisplay = isContractor ? 'Подрядчик' : (isAdmin ? 'Администратор' : 'Монитор');
     final mainStatLabel = isContractor ? 'Получено заявок' : 'Отправлено заявок';
     final mainStatIcon = isContractor ? Icons.move_to_inbox_outlined : Icons.send_outlined;
 
-    final initials = _userName.isNotEmpty ? _userName.substring(0, 1).toUpperCase() : 'U';
-
-    // === ФОРМИРУЕМ КРАСИВЫЙ ТЕКСТ (Например: 01.04.26 - 04.04.26) ===
     String dateText = 'За все время';
     if (_selectedDateRange != null) {
       final start = _selectedDateRange!.start;
@@ -198,7 +214,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final startStr = "${start.day.toString().padLeft(2, '0')}.${start.month.toString().padLeft(2, '0')}.${start.year.toString().substring(2)}";
       final endStr = "${end.day.toString().padLeft(2, '0')}.${end.month.toString().padLeft(2, '0')}.${end.year.toString().substring(2)}";
 
-      // Если выбрали один и тот же день, пишем его один раз
       if (startStr == endStr) {
         dateText = startStr;
       } else {
@@ -216,89 +231,102 @@ class _ProfileScreenState extends State<ProfileScreen> {
             const SizedBox(height: 16),
 
             // === ШАПКА ПРОФИЛЯ ===
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
-              child: Column(
-                children: [
-                  CircleAvatar(
-                    radius: 48,
-                    backgroundColor: AppColors.primaryMint.withValues(alpha: 0.1),
-                    child: Text(
-                      initials,
-                      style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: AppColors.primaryMint),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(_userName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
-                  const SizedBox(height: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: AppColors.primaryMint.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(roleDisplay, style: const TextStyle(color: AppColors.primaryMint, fontWeight: FontWeight.w600, fontSize: 14)),
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // === ЗАГОЛОВОК СТАТИСТИКИ И ВЫБОР ДИАПАЗОНА ДАТ ===
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Статистика', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
-                  GestureDetector(
-                    onTap: _pickDateRange, // Вызываем выбор диапазона дат
-                    behavior: HitTestBehavior.opaque,
-                    child: Row(
-                      children: [
-                        Text(dateText, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.primaryMint)),
-                        const SizedBox(width: 4),
-                        const Icon(Icons.calendar_month_outlined, color: AppColors.primaryMint, size: 18),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            // === ТАБЛИЦА СТАТИСТИКИ ===
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
+              padding: const EdgeInsets.symmetric(horizontal: 20.0), // <--- ДОБАВИЛИ ОТСТУПЫ ПО БОКАМ
               child: Container(
+                padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0xFFF1F5F9), width: 1.5),
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))]
                 ),
-                child: Column(
+                child: Row(
                   children: [
-                    _buildStatRow(mainStatLabel, _totalRequests.toString(), mainStatIcon, Colors.blue, null, showArrow: false),
-                    const Divider(height: 1, thickness: 1.5, color: Color(0xFFF1F5F9), indent: 48),
-
-                    _buildStatRow('В обработке', _newCount.toString(), Icons.hourglass_empty_rounded, Colors.amber, () => _openRequestList('В обработке', 'new')),
-                    const Divider(height: 1, thickness: 1.5, color: Color(0xFFF1F5F9), indent: 48),
-
-                    _buildStatRow('В работе', _inProgressCount.toString(), Icons.play_circle_outline, Colors.green, () => _openRequestList('В работе', 'in_progress')),
-                    const Divider(height: 1, thickness: 1.5, color: Color(0xFFF1F5F9), indent: 48),
-
-                    _buildStatRow('Исполнено', _doneCount.toString(), Icons.check_circle_outline, AppColors.primaryMint, () => _openRequestList('Исполнено', 'done')),
-                    const Divider(height: 1, thickness: 1.5, color: Color(0xFFF1F5F9), indent: 48),
-
-                    _buildStatRow('Отменено', _cancelledCount.toString(), Icons.cancel_outlined, Colors.redAccent, () => _openRequestList('Отменено', 'cancelled')),
+                    CircleAvatar(
+                      radius: 36,
+                      backgroundColor: AppColors.primaryMint.withValues(alpha: 0.1),
+                      child: const Icon(Icons.person, size: 40, color: AppColors.primaryMint),
+                    ),
+                    const SizedBox(width: 20),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(_userName, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
+                          const SizedBox(height: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(8)),
+                            child: Text(
+                              roleDisplay.toUpperCase(),
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey.shade700),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),
             ),
 
             const SizedBox(height: 24),
+
+            // === ПОКАЗЫВАЕМ СТАТИСТИКУ ТОЛЬКО ЕСЛИ ЭТО НЕ АДМИН ===
+            if (!isAdmin) ...[
+              // ЗАГОЛОВОК СТАТИСТИКИ И ВЫБОР ДИАПАЗОНА ДАТ
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Статистика', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.darkBackground)),
+                    GestureDetector(
+                      onTap: _pickDateRange,
+                      behavior: HitTestBehavior.opaque,
+                      child: Row(
+                        children: [
+                          Text(dateText, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.primaryMint)),
+                          const SizedBox(width: 4),
+                          const Icon(Icons.calendar_month_outlined, color: AppColors.primaryMint, size: 18),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // ТАБЛИЦА СТАТИСТИКИ
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFF1F5F9), width: 1.5),
+                  ),
+                  child: Column(
+                    children: [
+                      _buildStatRow(mainStatLabel, _totalRequests.toString(), mainStatIcon, Colors.blue, null, showArrow: false),
+                      const Divider(height: 1, thickness: 1.5, color: Color(0xFFF1F5F9), indent: 48),
+
+                      _buildStatRow('В обработке', _newCount.toString(), Icons.hourglass_empty_rounded, Colors.amber, () => _openRequestList('В обработке', 'new')),
+                      const Divider(height: 1, thickness: 1.5, color: Color(0xFFF1F5F9), indent: 48),
+
+                      _buildStatRow('В работе', _inProgressCount.toString(), Icons.play_circle_outline, Colors.green, () => _openRequestList('В работе', 'in_progress')),
+                      const Divider(height: 1, thickness: 1.5, color: Color(0xFFF1F5F9), indent: 48),
+
+                      _buildStatRow('Исполнено', _doneCount.toString(), Icons.check_circle_outline, AppColors.primaryMint, () => _openRequestList('Исполнено', 'done')),
+                      const Divider(height: 1, thickness: 1.5, color: Color(0xFFF1F5F9), indent: 48),
+
+                      _buildStatRow('Отменено', _cancelledCount.toString(), Icons.cancel_outlined, Colors.redAccent, () => _openRequestList('Отменено', 'cancelled')),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
 
             // === МЕНЮ НАСТРОЕК ===
             Padding(
@@ -310,7 +338,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
                 child: Column(
                   children: [
-                    _buildMenuTile(Icons.help_outline, 'Служба поддержки', onTap: () {}),
+                    _buildMenuTile(Icons.help_outline, 'Служба поддержки', onTap: () {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('В разработке')));
+                    }),
+                    const Divider(height: 1, indent: 48, color: Color(0xFFF1F5F9)),
                   ],
                 ),
               ),
@@ -357,18 +388,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildMenuTile(IconData icon, String title, {String? subtitle, VoidCallback? onTap}) {
+  Widget _buildMenuTile(IconData icon, String title, {String? subtitle, VoidCallback? onTap, Color iconColor = AppColors.darkBackground, Color textColor = AppColors.darkBackground, bool showArrow = true}) {
     return ListTile(
       onTap: onTap,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       leading: Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(8)),
-        child: Icon(icon, color: AppColors.darkBackground, size: 24),
+        child: Icon(icon, color: iconColor, size: 24),
       ),
-      title: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.darkBackground)),
+      title: Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: textColor)),
       subtitle: subtitle != null ? Text(subtitle, style: const TextStyle(color: Colors.grey, fontSize: 13)) : null,
-      trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+      trailing: showArrow ? const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey) : null,
     );
   }
 }

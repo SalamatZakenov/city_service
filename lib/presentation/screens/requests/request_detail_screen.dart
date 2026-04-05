@@ -9,7 +9,6 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../data/api/request_service.dart';
 import '../../../data/storage/secure_storage.dart';
-import '../../widgets/global_header.dart';
 
 class RequestDetailScreen extends StatefulWidget {
   final String requestNumber;
@@ -59,16 +58,38 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     try {
       final role = await SecureStorage.getRole();
 
-      final results = await Future.wait([
-        _requestService.getCategories(),
-        _requestService.getRequestById(widget.requestNumber),
-      ]);
+      Map<String, dynamic>? fetchedRequestData;
+
+      if (role == 'admin') {
+        final token = await SecureStorage.getToken();
+        final dio = Dio();
+        try {
+          final response = await dio.get(
+            'https://city-service-production.up.railway.app/api/admin/requests',
+            options: Options(headers: {'Authorization': 'Bearer $token'}),
+          );
+
+          final List<dynamic> allRequests = response.data['data'] ?? [];
+
+          fetchedRequestData = allRequests.firstWhere(
+                (req) => req['id'].toString() == widget.requestNumber ||
+                req['request_number'].toString() == widget.requestNumber,
+            orElse: () => null,
+          );
+        } catch (e) {
+          print('Ошибка поиска заявки админа: $e');
+        }
+      } else {
+        fetchedRequestData = await _requestService.getRequestById(widget.requestNumber);
+      }
+
+      final categories = await _requestService.getCategories();
 
       if (mounted) {
         setState(() {
           _userRole = role ?? 'user';
-          _categories = results[0] as List<dynamic>;
-          _requestData = results[1] as Map<String, dynamic>?;
+          _categories = categories;
+          _requestData = fetchedRequestData;
           _isLoading = false;
         });
 
@@ -81,12 +102,9 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     }
   }
 
-  // === НОВЫЙ МЕТОД: Открытие WhatsApp ===
   Future<void> _openWhatsApp(String phone) async {
-    // 1. Очищаем номер от пробелов, скобок и плюсов (оставляем только цифры)
     String cleanedPhone = phone.replaceAll(RegExp(r'[^\d]'), '');
 
-    // 2. Если номер казахстанский/российский и начинается на 8, меняем 8 на 7
     if (cleanedPhone.startsWith('8') && cleanedPhone.length == 11) {
       cleanedPhone = '7${cleanedPhone.substring(1)}';
     }
@@ -104,7 +122,6 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     }
   }
 
-  // === Методы для карт ===
   Future<void> _openMapApp(String mapType) async {
     final lat = _locationCoords.latitude;
     final lon = _locationCoords.longitude;
@@ -559,6 +576,35 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     );
   }
 
+  // === НОВЫЙ МЕТОД ДЛЯ ОТРИСОВКИ БОЛЬШОЙ КНОПКИ СВЯЗИ ===
+  Widget _buildContactButton(String title, String phone) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12.0),
+      child: SizedBox(
+        width: double.infinity,
+        child: ElevatedButton.icon(
+          onPressed: () {
+            if (phone == 'Не указан' || phone == 'Не назначено' || phone.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Номер телефона пока не указан'), backgroundColor: Colors.orange),
+              );
+              return;
+            }
+            _openWhatsApp(phone);
+          },
+          icon: const Icon(Icons.chat_bubble_outline, color: Colors.white),
+          label: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF25D366), // Цвет WhatsApp
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            elevation: 0,
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -717,6 +763,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                 const Divider(color: Color(0xFFF1F5F9), thickness: 1.5),
                 const SizedBox(height: 20),
 
+                // Инфа осталась чистой, без иконок
                 _buildDetailRow('Срочность', urgency, isHighlight: urgency == 'Критичная'),
                 _buildDetailRow('Заявка от', monitorName),
                 _buildDetailRow('Номер', monitorPhone),
@@ -730,32 +777,20 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
 
                 const SizedBox(height: 32),
 
-                // === ОБНОВЛЕННАЯ КНОПКА WHATSAPP ===
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      // Определяем, кому писать:
-                      // Если я Подрядчик - пишу Монитору. Если я Монитор - пишу Подрядчику.
-                      final targetPhone = _userRole == 'contractor' ? monitorPhone : contractorPhone;
+                // === НОВЫЕ БОЛЬШИЕ КНОПКИ СВЯЗИ ===
+                if (_userRole == 'admin') ...[
+                  _buildContactButton('Написать Монитору', monitorPhone),
+                  if (contractor != null) _buildContactButton('Написать Подрядчику', contractorPhone),
+                ] else if (_userRole == 'contractor') ...[
+                  _buildContactButton('Написать Монитору', monitorPhone),
+                ] else ...[
+                  // Это Монитор
+                  if (contractor != null) _buildContactButton('Написать Подрядчику', contractorPhone),
+                ],
 
-                      // Проверяем, есть ли номер
-                      if (targetPhone == 'Не указан' || targetPhone == 'Не назначено' || targetPhone.isEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Номер телефона пока не указан'), backgroundColor: Colors.orange),
-                        );
-                        return;
-                      }
+                const SizedBox(height: 8), // Отступ перед действиями
 
-                      _openWhatsApp(targetPhone);
-                    },
-                    icon: const Icon(Icons.chat_bubble_outline, color: Colors.white),
-                    label: const Text('Связаться через WhatsApp', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
-                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF25D366), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), elevation: 0),
-                  ),
-                ),
-                const SizedBox(height: 12),
-
+                // === КНОПКИ ДЕЙСТВИЙ (ВЗЯТЬ/ОТМЕНИТЬ) ===
                 if (_userRole == 'contractor') ...[
                   if (status == 'new')
                     SizedBox(
@@ -804,11 +839,12 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     );
   }
 
+  // Обновленный виджет строки информации (убрал `trailing`)
   Widget _buildDetailRow(String title, String value, {bool isHighlight = false, bool isStatus = false, Color? statusBgColor, Color? statusTextColor}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16.0),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Expanded(flex: 2, child: Text(title, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 14, fontWeight: FontWeight.w500))),
           Expanded(
