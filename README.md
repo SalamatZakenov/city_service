@@ -1,16 +1,20 @@
-# city_service
+# City Service 🏙️
 
-A new Flutter project.
+Кроссплатформенное B2B/B2G мобильное приложение для мониторинга и управления городскими заявками (благоустройство, вывоз ТБО, инфраструктура и т.д.). 
 
-## Getting Started
+## 🎥 Демонстрация работы
+![App Demo](https://drive.google.com/drive/folders/1i6tH77icq6Nyxtc2oap4k_VL4BO6JX-H?usp=sharing)
 
-This project is a starting point for a Flutter application.
+## ✨ Ключевые возможности
+* **Динамическая ролевая модель:** Индивидуальные интерфейсы и права доступа для Администраторов, Подрядчиков и Мониторов (инициаторов).
+* **Интерактивная картография:** Отображение заявок разноцветными маркерами в зависимости от статуса (`flutter_map`), определение геолокации пользователя и прокладка маршрутов через нативные приложения (2GIS, Яндекс.Карты, Google Maps).
+* **Аналитические дашборды:** Динамический подсчет статистики заявок с умной фильтрацией по диапазону дат, категориям и статусам.
+* **Быстрая коммуникация:** Прямой переход в чат WhatsApp с нужным участником процесса прямо из карточки заявки (Deep links).
+* **Взаимодействие с сервером:** Полная интеграция с REST API, отправка медиафайлов (фото-отчеты) и безопасное хранение JWT-токенов.
 
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## 🛠 Стек технологий
+* **UI & Логика:** Flutter / Dart
+* **Сеть:** Dio
+* **Карты и Локация:** flutter_map, latlong2, geolocator, url_launcher
+* **Локальное хранилище:** flutter_secure_storage
+* **Медиа:** image_picker, cached_network_image
